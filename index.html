@@ -128,6 +128,15 @@ h4.sub{font-size:16px;font-weight:650;margin:24px 0 10px}
 .btn.danger-fill{background:var(--neg);color:#fff}
 .chip.add-chip{border-style:dashed;color:var(--muted)}
 .new-cat{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;margin-top:10px}
+.ins-card{display:block;text-decoration:none;background:var(--surface);border:1px solid var(--line);border-radius:22px;padding:16px 20px 18px;margin-bottom:12px}
+.ins-card:hover{background:var(--surface-2)}
+.ins-top{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.ins-top svg{flex:none;color:var(--muted)}
+.section-note{color:var(--muted);font-size:14px;line-height:1.45;margin:-4px 4px 10px}
+.cat-name small{display:block;color:var(--muted);font-weight:500;font-size:13px;margin-top:2px}
+/* iPhone home-screen app: keep the top bar clear of the clock and battery */
+.ios-app .wrap{padding-top:max(calc(env(safe-area-inset-top,0px) + 10px), 58px)}
+.ios-app body::before{content:"";position:fixed;top:0;left:0;right:0;height:max(env(safe-area-inset-top,0px), 50px);background:var(--bg);z-index:30;pointer-events:none}
 .banner{background:var(--surface);border:1px solid var(--neg);color:var(--ink);border-radius:16px;padding:12px 14px;font-size:14.5px;line-height:1.45;margin-bottom:14px}
 
 .overlay{position:fixed;inset:0;z-index:50;background:rgba(18,30,27,.38);display:flex;align-items:flex-end;justify-content:center;animation:fade .18s ease-out}
@@ -289,11 +298,13 @@ function addCategory(name, color){
   return {cat:c};
 }
 
-function statsFor(k){
+function statsFor(k){ return statsWhere(e => monthOf(e.date) === k); }   // one month only
+function statsAll(){ return statsWhere(() => true); }                       // every month
+function statsWhere(test){
   const s = {salary:0, deposit:0, spent:0, paychecks:0, cats:{}, entries:[]};
   cats().forEach(c => s.cats[c.id] = 0);
   for(const e of state.entries){
-    if(monthOf(e.date) !== k) continue;
+    if(!test(e)) continue;
     s.entries.push(e);
     if(e.type === 'salary'){ s.salary += e.amount; s.paychecks++; }
     else if(e.type === 'deposit'){ s.deposit += e.amount; }
@@ -309,6 +320,12 @@ function allMonths(){
   return [...set].sort().reverse();
 }
 const netClass = n => n > 0 ? 'pos' : n < 0 ? 'neg' : 'quiet';
+function pctOf(v, total){
+  if(!total) return '\u2014';
+  const p = v / total * 100;
+  return (v > 0 && p < 1) ? '<1%' : Math.round(p) + '%';
+}
+const ICON_CHEVRON = '<svg width="9" height="15" viewBox="0 0 9 15" aria-hidden="true"><path d="M1.5 1.5 7.5 7.5l-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
 /* ---------- pieces ---------- */
 const ICON_GEAR = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>';
@@ -373,6 +390,11 @@ function renderHome(){
     addRow(cur) +
   '</section>';
 
+  html += '<a class="ins-card" style="margin-top:12px" href="#insights">' +
+    '<div class="ins-top"><span><span class="total-label">All-time insights</span>' +
+    '<span class="total-sub">What share of your income went to each category</span></span>'+ICON_CHEVRON+'</div>' +
+    ribbon(statsAll(), true) +
+  '</a>';
   html += '<h2>Previous months</h2><div class="list">';
   if(others.length === 0){
     html += '<p class="empty">When '+monthName(cur)+' ends, it moves here with its net savings, and a fresh month starts at the top.</p>';
@@ -428,12 +450,12 @@ function renderMonth(k){
   '</section>';
 
   const order = cats().slice().sort((a,b) => s.cats[b.id] - s.cats[a.id]);
-  html += '<h2>Spending by category</h2><div class="list">' + order.map(c => {
+  html += '<h2>Spending by category</h2><p class="section-note">Only expenses from '+monthLabel(k)+'.</p><div class="list">' + order.map(c => {
     const v = s.cats[c.id];
     const pct = s.spent ? Math.round(v/s.spent*100) : 0;
     return '<div class="cat-row'+(v ? '' : ' zero')+'"><i class="dot" style="background:'+c.color+'"></i>' +
       '<span class="cat-name">'+esc(c.name)+'</span>' +
-      '<span class="cat-amt num">'+money(v)+'<small>'+pct+'%</small></span>' +
+      '<span class="cat-amt num">'+money(v)+'<small>'+(s.spent ? pctOf(v, s.spent) : '0%')+'</small></span>' +
       '<div class="cat-bar"><span style="width:'+pct+'%;background:'+c.color+'"></span></div></div>';
   }).join('') + '</div>';
 
@@ -451,10 +473,65 @@ function renderMonth(k){
   return html;
 }
 
+function renderInsights(){
+  const s = statsAll();
+  const cur = currentMonth();
+  const used = allMonths().filter(k => statsFor(k).entries.length > 0).sort();
+  const n = used.length;
+  const range = n === 0 ? 'Nothing logged yet'
+    : n === 1 ? monthLabel(used[0])
+    : monthLabel(used[0]) + ' to ' + monthLabel(used[n-1]);
+  const includesCur = used.includes(cur);
+  const avg = v => n ? money(Math.round(v / n)) : money(0);
+
+  let html = topbar('<a class="back" href="#"><svg width="10" height="16" viewBox="0 0 10 16" aria-hidden="true"><path d="M8 2 2 8l6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>All months</a>') + banner();
+
+  html += '<section class="panel">' +
+    '<h1>All-time insights</h1>' +
+    '<p class="caption">'+range+(n > 1 ? ' ('+n+' months)' : '')+'</p>' +
+    '<p class="big num '+netClass(s.net)+'">'+money(s.net)+'</p>' +
+    '<p class="caption">'+(s.net < 0 ? 'more spent than came in overall' : 'saved overall')+(includesCur ? ', including '+monthName(cur)+' so far' : '')+'</p>' +
+    ribbon(s) +
+    '<div class="io three"><div><span>Came in</span><strong class="num">'+money(s.income)+'</strong></div>' +
+    '<div><span>Went out</span><strong class="num">'+money(s.spent)+'</strong></div>' +
+    '<div><span>Kept</span><strong class="num">'+(s.income ? Math.max(0, Math.round(s.net/s.income*100)) : 0)+'%</strong></div></div>' +
+  '</section>';
+
+  html += '<h2>Where your income went</h2>' +
+    '<p class="section-note">'+(s.income
+      ? 'Each category as a share of all the money that came in, with the average per month.'
+      : 'Add a salary or deposit to see what share of your income each category takes.')+'</p><div class="list">';
+  const order = cats().slice().sort((a,b) => s.cats[b.id] - s.cats[a.id]);
+  const rows = order.map(c => ({name:esc(c.name), color:c.color, v:s.cats[c.id]}));
+  if(s.net > 0) rows.push({name:'Saved', color:'var(--accent)', v:s.net});
+  html += rows.map(r => {
+    const width = s.income ? Math.min(100, r.v / s.income * 100) : 0;
+    return '<div class="cat-row'+(r.v ? '' : ' zero')+'"><i class="dot" style="background:'+r.color+'"></i>' +
+      '<span class="cat-name">'+r.name+'<small class="num">avg '+avg(r.v)+' a month</small></span>' +
+      '<span class="cat-amt num">'+money(r.v)+'<small>'+pctOf(r.v, s.income)+'</small></span>' +
+      '<div class="cat-bar"><span style="width:'+width.toFixed(1)+'%;background:'+r.color+'"></span></div></div>';
+  }).join('') + '</div>';
+  if(s.net < 0 && s.income){
+    html += '<p class="footnote">You\u2019ve spent '+money(-s.net)+' more than came in, so the categories add up to more than 100%.</p>';
+  }
+
+  html += '<h2>Money in</h2><div class="list">' +
+    '<div class="kv"><span>Salary<small>'+s.paychecks+' paycheck'+(s.paychecks === 1 ? '' : 's')+'</small></span><strong class="num">'+money(s.salary)+'</strong></div>' +
+    '<div class="kv"><span>Deposits</span><strong class="num">'+money(s.deposit)+'</strong></div></div>';
+  return html;
+}
+
 /* ---------- routing ---------- */
 const app = document.getElementById('app');
-function route(){ const m = location.hash.match(/^#m=(\d{4}-\d{2})$/); return m ? m[1] : null; }
-function render(){ const k = route(); app.innerHTML = k ? renderMonth(k) : renderHome(); }
+function route(){
+  if(location.hash === '#insights') return {view:'insights'};
+  const m = location.hash.match(/^#m=(\d{4}-\d{2})$/);
+  return m ? {view:'month', k:m[1]} : {view:'home'};
+}
+function render(){
+  const r = route();
+  app.innerHTML = r.view === 'month' ? renderMonth(r.k) : r.view === 'insights' ? renderInsights() : renderHome();
+}
 window.addEventListener('hashchange', () => { render(); window.scrollTo(0,0); });
 
 /* ---------- sheets ---------- */
@@ -788,6 +865,10 @@ let shownMonth = currentMonth();
 document.addEventListener('visibilitychange', () => {
   if(document.visibilityState === 'visible' && currentMonth() !== shownMonth){ shownMonth = currentMonth(); render(); }
 });
+
+if(isIOS && (navigator.standalone || matchMedia('(display-mode: standalone)').matches)){
+  document.documentElement.classList.add('ios-app');
+}
 
 render();
 
