@@ -14,6 +14,7 @@ A simple, calm monthly budget app that runs in your browser and installs on your
 - **Edit or delete any entry.** Fix a mistyped amount or remove an entry, and every total updates automatically.
 - **Monthly breakdown.** See how much went to each category (biggest first), how many paychecks came in, and your net savings.
 - **Total savings.** The homepage shows your combined savings across all finished months. The current month is added once it ends.
+- **All-time insights.** See what share of all your income went to each category, how much you've saved overall, and your average monthly spending per category.
 - **Saved automatically.** Entries stay on your device until you delete them, even after closing or refreshing.
 - **Works offline.** Once installed, it opens without an internet connection.
 - **Backup and restore.** Download a backup file, including your categories, and restore it on another device.
