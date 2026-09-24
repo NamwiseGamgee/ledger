@@ -114,6 +114,20 @@ h2{font-size:17px;font-weight:650;margin:32px 4px 10px}
 .entry-amt{display:block;font-weight:600}
 .entry-date{display:block;color:var(--muted);font-size:13px;margin-top:2px}
 
+.cat-item{display:grid;grid-template-columns:10px minmax(0,1fr) auto auto;gap:8px;align-items:center;padding:10px 10px 10px 16px}
+.cat-item-main{min-width:0}
+.cat-item .cat-name{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cat-count{display:block;color:var(--muted);font-size:13px;margin-top:1px}
+.mini{border:0;border-radius:10px;min-height:36px;padding:0 12px;font-size:14px;font-weight:600;background:var(--surface-2)}
+.mini.danger{background:transparent;color:var(--neg)}
+.sheet .list{background:var(--bg)}
+h4.sub{font-size:16px;font-weight:650;margin:24px 0 10px}
+.swatches{display:flex;flex-wrap:wrap;gap:10px;margin-top:14px}
+.swatch{width:34px;height:34px;border-radius:50%;border:0;padding:0;box-shadow:inset 0 0 0 1px rgba(0,0,0,.08)}
+.swatch[aria-pressed="true"]{box-shadow:0 0 0 2px var(--surface),0 0 0 4px var(--ink)}
+.btn.danger-fill{background:var(--neg);color:#fff}
+.chip.add-chip{border-style:dashed;color:var(--muted)}
+.new-cat{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;margin-top:10px}
 .banner{background:var(--surface);border:1px solid var(--neg);color:var(--ink);border-radius:16px;padding:12px 14px;font-size:14.5px;line-height:1.45;margin-bottom:14px}
 
 .overlay{position:fixed;inset:0;z-index:50;background:rgba(18,30,27,.38);display:flex;align-items:flex-end;justify-content:center;animation:fade .18s ease-out}
@@ -163,13 +177,17 @@ select.input{background-image:linear-gradient(45deg,transparent 50%,var(--muted)
 
 /* ---------- data ---------- */
 const KEY = 'ledger.v1';
-const CATS = [
-  {id:'grocery', name:'Grocery'},
-  {id:'rent', name:'Rent'},
-  {id:'restaurants', name:'Restaurants'},
-  {id:'car', name:'Car maintenance'},
-  {id:'other', name:'Other expense'}
+// Soft colors that new categories pick from.
+const PALETTE = ['#8BB39C','#7E9FBE','#E0AE85','#A597C6','#B9B2A5','#D99AA6','#7FB8B8','#C9B87A','#9AAFD1','#B89A84','#A3C48F','#C7A2C4'];
+// The starting categories. You can rename, recolor or delete any of them in the app.
+const DEFAULT_CATS = [
+  {id:'grocery', name:'Grocery', color:'#8BB39C'},
+  {id:'rent', name:'Rent', color:'#7E9FBE'},
+  {id:'restaurants', name:'Restaurants', color:'#E0AE85'},
+  {id:'car', name:'Car maintenance', color:'#A597C6'},
+  {id:'other', name:'Other expense', color:'#B9B2A5'}
 ];
+const HEX = /^#[0-9a-fA-F]{6}$/;
 const TYPES = ['salary','expense','deposit'];
 const TYPE_NAME = {salary:'Salary', expense:'Expense', deposit:'Deposit'};
 const NOTE_HINT = {
@@ -181,15 +199,40 @@ const NOTE_HINT = {
 let storageOK = true;
 try { localStorage.setItem('__t','1'); localStorage.removeItem('__t'); } catch(e){ storageOK = false; }
 
+function cleanCats(list){
+  if(!Array.isArray(list)) return null;
+  const out = [];
+  for(const c of list){
+    if(!c || typeof c.name !== 'string' || !c.name.trim()) continue;
+    const id = String(c.id || '').replace(/[^\w-]/g,'');
+    if(!id || out.some(x => x.id === id)) continue;
+    out.push({id:id, name:c.name.trim().slice(0,30), color: HEX.test(c.color) ? c.color : PALETTE[out.length % PALETTE.length]});
+  }
+  return out;
+}
+// Older saved data has no category list, so it gets the starting five.
+// Any expense whose category is missing gets a category again, so nothing disappears.
+function ensureCategories(st){
+  if(!st.categories || !st.categories.length) st.categories = DEFAULT_CATS.map(c => Object.assign({}, c));
+  for(const e of st.entries){
+    if(e.type !== 'expense' || st.categories.some(c => c.id === e.category)) continue;
+    const def = DEFAULT_CATS.find(c => c.id === e.category);
+    if(def){ st.categories.push(Object.assign({}, def)); continue; }
+    let un = st.categories.find(c => c.id === 'uncategorized');
+    if(!un){ un = {id:'uncategorized', name:'Uncategorized', color:'#B9B2A5'}; st.categories.push(un); }
+    e.category = un.id;
+  }
+  return st;
+}
 function load(){
   try{
     const raw = localStorage.getItem(KEY);
     if(raw){
       const d = JSON.parse(raw);
-      if(d && Array.isArray(d.entries)) return {currency:d.currency || '$', lastBackup:d.lastBackup || null, entries:d.entries};
+      if(d && Array.isArray(d.entries)) return ensureCategories({currency:d.currency || '$', lastBackup:d.lastBackup || null, categories:cleanCats(d.categories), entries:d.entries});
     }
   }catch(e){}
-  return {currency:'$', lastBackup:null, entries:[]};
+  return ensureCategories({currency:'$', lastBackup:null, categories:null, entries:[]});
 }
 let state = load();
 
@@ -224,17 +267,37 @@ function parseAmount(str){
   const n = parseFloat(String(str).replace(/,/g,'').replace(/[^0-9.]/g,''));
   return isFinite(n) ? Math.round(n*100) : NaN;
 }
-const catOf = e => CATS.some(c => c.id === e.category) ? e.category : 'other';
+const cats = () => state.categories;
+const catById = id => state.categories.find(c => c.id === id);
+const catOf = e => catById(e.category) || state.categories[0];
+function nextColor(){
+  const used = new Set(cats().map(c => c.color.toUpperCase()));
+  return PALETTE.find(p => !used.has(p)) || PALETTE[cats().length % PALETTE.length];
+}
+function checkCatName(name, exceptId){
+  if(!name) return 'Type a name for the category.';
+  const same = cats().find(c => c.id !== exceptId && c.name.toLowerCase() === name.toLowerCase());
+  if(same) return 'You already have a category called \u201c'+same.name+'\u201d.';
+  return '';
+}
+function addCategory(name, color){
+  name = name.trim().slice(0,30);
+  const problem = checkCatName(name);
+  if(problem) return {error:problem};
+  const c = {id:'c_'+uid(), name:name, color: HEX.test(color || '') ? color : nextColor()};
+  state.categories.push(c);
+  return {cat:c};
+}
 
 function statsFor(k){
   const s = {salary:0, deposit:0, spent:0, paychecks:0, cats:{}, entries:[]};
-  CATS.forEach(c => s.cats[c.id] = 0);
+  cats().forEach(c => s.cats[c.id] = 0);
   for(const e of state.entries){
     if(monthOf(e.date) !== k) continue;
     s.entries.push(e);
     if(e.type === 'salary'){ s.salary += e.amount; s.paychecks++; }
     else if(e.type === 'deposit'){ s.deposit += e.amount; }
-    else { s.spent += e.amount; s.cats[catOf(e)] += e.amount; }
+    else { s.spent += e.amount; s.cats[catOf(e).id] += e.amount; }
   }
   s.income = s.salary + s.deposit;
   s.net = s.income - s.spent;
@@ -255,8 +318,8 @@ const BRAND = '<svg width="24" height="22" viewBox="0 0 24 22" aria-hidden="true
 function ribbon(s, thin){
   const cls = 'ribbon' + (thin ? ' thin' : '');
   if(s.income === 0 && s.spent === 0) return '<div class="'+cls+'" aria-hidden="true"></div>';
-  let segs = CATS.filter(c => s.cats[c.id] > 0)
-    .map(c => '<span style="flex:'+s.cats[c.id]+';background:var(--c-'+c.id+')"></span>').join('');
+  let segs = cats().filter(c => s.cats[c.id] > 0)
+    .map(c => '<span style="flex:'+s.cats[c.id]+';background:'+c.color+'"></span>').join('');
   if(s.net > 0) segs += '<span class="saved" style="flex:'+s.net+'"></span>';
   const label = s.net >= 0
     ? 'Spent '+Math.round(s.income ? s.spent/s.income*100 : 0)+' percent of income'
@@ -331,9 +394,9 @@ function renderHome(){
 
 function entryRow(e){
   const isExp = e.type === 'expense';
-  const cat = CATS.find(c => c.id === catOf(e));
-  const title = isExp ? cat.name : TYPE_NAME[e.type];
-  const color = isExp ? 'var(--c-'+cat.id+')' : e.type === 'salary' ? 'var(--accent)' : 'var(--pos)';
+  const cat = catOf(e);
+  const title = isExp ? esc(cat.name) : TYPE_NAME[e.type];
+  const color = isExp ? cat.color : e.type === 'salary' ? 'var(--accent)' : 'var(--pos)';
   return '<button class="entry" data-action="edit" data-id="'+esc(e.id)+'">' +
     '<i class="dot" style="background:'+color+'"></i>' +
     '<span class="entry-main"><span class="entry-title">'+title+'</span>' +
@@ -364,13 +427,14 @@ function renderMonth(k){
     addRow(k) +
   '</section>';
 
-  html += '<h2>Spending by category</h2><div class="list">' + CATS.map(c => {
+  const order = cats().slice().sort((a,b) => s.cats[b.id] - s.cats[a.id]);
+  html += '<h2>Spending by category</h2><div class="list">' + order.map(c => {
     const v = s.cats[c.id];
     const pct = s.spent ? Math.round(v/s.spent*100) : 0;
-    return '<div class="cat-row'+(v ? '' : ' zero')+'"><i class="dot" style="background:var(--c-'+c.id+')"></i>' +
-      '<span class="cat-name">'+c.name+'</span>' +
+    return '<div class="cat-row'+(v ? '' : ' zero')+'"><i class="dot" style="background:'+c.color+'"></i>' +
+      '<span class="cat-name">'+esc(c.name)+'</span>' +
       '<span class="cat-amt num">'+money(v)+'<small>'+pct+'%</small></span>' +
-      '<div class="cat-bar"><span style="width:'+pct+'%;background:var(--c-'+c.id+')"></span></div></div>';
+      '<div class="cat-bar"><span style="width:'+pct+'%;background:'+c.color+'"></span></div></div>';
   }).join('') + '</div>';
 
   html += '<h2>Money in</h2><div class="list">' +
@@ -419,8 +483,8 @@ function openEntry(opts){
   const entry = opts.entry || null;
   const month = opts.month || currentMonth();
   const draft = entry
-    ? {type:entry.type, category:catOf(entry)}
-    : {type:opts.type || 'expense', category:'grocery'};
+    ? {type:entry.type, category:catOf(entry).id}
+    : {type:opts.type || 'expense', category:(catById('grocery') || cats()[0]).id};
   const date = entry ? entry.date : (month === currentMonth() ? todayStr() : month + '-01');
 
   const html =
@@ -430,9 +494,10 @@ function openEntry(opts){
     '<label class="amount-field"><span>'+esc(state.currency)+'</span>' +
       '<input id="f-amount" inputmode="decimal" autocomplete="off" placeholder="0.00" aria-label="Amount" value="'+(entry ? (entry.amount/100).toFixed(2) : '')+'"></label>' +
     '<p class="err" id="f-err" role="alert"></p>' +
-    '<div class="field" id="f-cat"><span>Category</span><div class="chips">' +
-      CATS.map(c => '<button type="button" class="chip" data-c="'+c.id+'"><i class="dot" style="background:var(--c-'+c.id+')"></i>'+c.name+'</button>').join('') +
-    '</div></div>' +
+    '<div class="field" id="f-cat"><span>Category</span><div class="chips" id="f-chips"></div>' +
+      '<div class="new-cat" id="f-newcat" hidden><input class="input" id="f-newcat-name" maxlength="30" autocomplete="off" placeholder="New category name" aria-label="New category name">' +
+      '<button type="button" class="btn primary" id="f-newcat-add">Add</button></div>' +
+    '</div>' +
     '<label class="field"><span>Date</span><input class="input" type="date" id="f-date" value="'+date+'"></label>' +
     '<label class="field"><span>Note</span><input class="input" id="f-note" maxlength="300" autocomplete="off" value="'+(entry ? esc(entry.note || '') : '')+'"></label>' +
     '<div class="actions">' +
@@ -445,15 +510,37 @@ function openEntry(opts){
   const $ = sel => sheet.querySelector(sel);
   const amountIn = $('#f-amount'), dateIn = $('#f-date'), noteIn = $('#f-note'), err = $('#f-err');
 
+  const chipsEl = $('#f-chips'), newCatRow = $('#f-newcat'), newCatIn = $('#f-newcat-name');
+  function drawChips(){
+    chipsEl.innerHTML = cats().map(c => '<button type="button" class="chip" data-c="'+c.id+'"><i class="dot" style="background:'+c.color+'"></i>'+esc(c.name)+'</button>').join('') +
+      '<button type="button" class="chip add-chip" data-new="1">'+ICON_PLUS+'New category</button>';
+  }
   function sync(){
     $('#f-cat').hidden = draft.type !== 'expense';
     sheet.querySelectorAll('.seg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.t === draft.type)));
-    sheet.querySelectorAll('.chip').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.c === draft.category)));
+    chipsEl.querySelectorAll('[data-c]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.c === draft.category)));
     noteIn.placeholder = NOTE_HINT[draft.type];
   }
-  sync();
+  drawChips(); sync();
   sheet.querySelectorAll('.seg button').forEach(b => b.addEventListener('click', () => { draft.type = b.dataset.t; sync(); }));
-  sheet.querySelectorAll('.chip').forEach(b => b.addEventListener('click', () => { draft.category = b.dataset.c; sync(); }));
+  chipsEl.addEventListener('click', e => {
+    const b = e.target.closest('button');
+    if(!b) return;
+    if(b.dataset.new){ newCatRow.hidden = false; newCatIn.focus(); return; }
+    draft.category = b.dataset.c; sync();
+  });
+  function addNewCat(){
+    const r = addCategory(newCatIn.value);
+    if(r.error){ err.textContent = r.error; newCatIn.focus(); return; }
+    if(!save()) return;
+    err.textContent = '';
+    draft.category = r.cat.id;
+    newCatIn.value = ''; newCatRow.hidden = true;
+    drawChips(); sync();
+    toast(r.cat.name + ' added to your categories');
+  }
+  $('#f-newcat-add').addEventListener('click', addNewCat);
+  newCatIn.addEventListener('keydown', e => { if(e.key === 'Enter'){ e.preventDefault(); addNewCat(); } });
 
   function submit(){
     const amount = parseAmount(amountIn.value);
@@ -476,7 +563,7 @@ function openEntry(opts){
     }
     if(!save()) return;
     closeSheet(); render();
-    const name = rec.type === 'expense' ? CATS.find(c => c.id === rec.category).name : TYPE_NAME[rec.type];
+    const name = rec.type === 'expense' ? catOf(rec).name : TYPE_NAME[rec.type];
     toast(entry ? 'Changes saved' : name + ' added to ' + monthName(monthOf(rec.date)));
   }
   $('#f-save').addEventListener('click', submit);
@@ -509,6 +596,7 @@ function openSettings(){
     '<h3>Settings</h3>' +
     '<label class="field"><span>Currency symbol</span><select class="input" id="s-cur">' +
       currencies.map(c => '<option'+(c === state.currency ? ' selected' : '')+'>'+esc(c)+'</option>').join('') + '</select></label>' +
+    '<div class="field"><span>Expense categories</span><button class="btn" id="s-cats" style="width:100%">Manage categories ('+cats().length+')</button></div>' +
     '<div class="data-box"><strong>'+count+' entr'+(count === 1 ? 'y' : 'ies')+' saved on this device</strong>' +
       '<p class="help">Everything stays here until you delete it, even after closing or refreshing. Your iPhone and your MacBook each keep their own copy. To move entries between them, download a backup on one and restore it on the other.</p>' +
       '<p class="help">'+last+'</p></div>' +
@@ -522,6 +610,7 @@ function openSettings(){
   const sheet = openSheet(html, 'Settings');
   const $ = sel => sheet.querySelector(sel);
   $('#s-cur').addEventListener('change', e => { state.currency = e.target.value; save(); render(); });
+  $('#s-cats').addEventListener('click', openCategories);
   $('#s-backup').addEventListener('click', exportData);
   $('#s-restore').addEventListener('click', () => document.getElementById('restore-input').click());
   $('#s-close').addEventListener('click', closeSheet);
@@ -533,8 +622,100 @@ function openSettings(){
   });
 }
 
+function openCategories(){
+  const sheet = openSheet('<div id="c-body"></div>', 'Categories');
+  const body = sheet.querySelector('#c-body');
+  let editing = null;      // id of the category being edited
+  let deleting = null;     // id of the category being deleted
+  let color = nextColor();
+  const countFor = id => state.entries.filter(e => e.type === 'expense' && e.category === id).length;
+  const plural = (n, word) => n + ' ' + word + (n === 1 ? '' : 's');
+
+  function draw(){
+    if(deleting){
+      const c = catById(deleting), n = countFor(deleting);
+      const others = cats().filter(x => x.id !== deleting);
+      const fallback = (others.find(x => x.id === 'other') || others[0]).id;
+      body.innerHTML = '<h3>Delete '+esc(c.name)+'?</h3>' +
+        '<p class="help">'+plural(n,'expense')+' '+(n === 1 ? 'is' : 'are')+' filed under '+esc(c.name)+', including in past months. Choose where to move '+(n === 1 ? 'it' : 'them')+' so your monthly totals stay the same.</p>' +
+        '<label class="field"><span>Move to</span><select class="input" id="c-move">' +
+          others.map(x => '<option value="'+x.id+'"'+(x.id === fallback ? ' selected' : '')+'>'+esc(x.name)+'</option>').join('') + '</select></label>' +
+        '<div class="actions"><button class="btn danger-fill" id="c-confirm">Move and delete</button><button class="btn plain" id="c-back">Cancel</button></div>';
+      body.querySelector('#c-back').addEventListener('click', () => { deleting = null; draw(); });
+      body.querySelector('#c-confirm').addEventListener('click', () => {
+        const target = body.querySelector('#c-move').value;
+        state.entries.forEach(e => { if(e.type === 'expense' && e.category === deleting) e.category = target; });
+        state.categories = cats().filter(x => x.id !== deleting);
+        if(save()){ toast(c.name+' deleted. Its expenses moved to '+catById(target).name); deleting = null; draw(); render(); }
+      });
+      return;
+    }
+    const ed = editing ? catById(editing) : null;
+    body.innerHTML = '<h3>Categories</h3><p class="help">These are the choices you see when you add an expense.</p>' +
+      '<div class="list" style="margin-top:14px">' + cats().map(x => {
+        const n = countFor(x.id);
+        return '<div class="cat-item"><i class="dot" style="background:'+x.color+'"></i>' +
+          '<span class="cat-item-main"><span class="cat-name">'+esc(x.name)+'</span><span class="cat-count">'+(n ? plural(n,'expense') : 'Not used yet')+'</span></span>' +
+          '<button type="button" class="mini" data-edit="'+x.id+'" aria-label="Edit '+esc(x.name)+'">Edit</button>' +
+          '<button type="button" class="mini danger" data-del="'+x.id+'" aria-label="Delete '+esc(x.name)+'">Delete</button></div>';
+      }).join('') + '</div>' +
+      '<h4 class="sub">'+(ed ? 'Edit '+esc(ed.name) : 'Add a category')+'</h4>' +
+      '<input class="input" id="c-name" maxlength="30" autocomplete="off" placeholder="e.g. Utilities, Gym, Gifts" aria-label="Category name" value="'+(ed ? esc(ed.name) : '')+'">' +
+      '<div class="swatches" role="group" aria-label="Color">' + PALETTE.map(p =>
+        '<button type="button" class="swatch" data-color="'+p+'" style="background:'+p+'" aria-label="Color '+p+'" aria-pressed="'+(p === color.toUpperCase())+'"></button>').join('') + '</div>' +
+      '<p class="err" id="c-err" role="alert"></p>' +
+      '<div class="actions">' + (ed
+        ? '<button class="btn primary" id="c-save">Save changes</button><button class="btn plain" id="c-cancel">Cancel editing</button>'
+        : '<button class="btn primary" id="c-add">Add category</button><button class="btn plain" id="c-done">Done</button>') + '</div>';
+
+    const nameIn = body.querySelector('#c-name'), err = body.querySelector('#c-err');
+    body.querySelectorAll('.swatch').forEach(b => b.addEventListener('click', () => {
+      color = b.dataset.color;
+      body.querySelectorAll('.swatch').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+    }));
+    body.querySelectorAll('[data-edit]').forEach(b => b.addEventListener('click', () => {
+      editing = b.dataset.edit; color = catById(editing).color; draw();
+      body.querySelector('#c-name').focus();
+    }));
+    body.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', () => {
+      const c = catById(b.dataset.del);
+      if(cats().length === 1){ toast('Keep at least one category'); return; }
+      if(countFor(c.id) === 0){
+        if(!confirm('Delete the '+c.name+' category?')) return;
+        state.categories = cats().filter(x => x.id !== c.id);
+        if(editing === c.id){ editing = null; color = nextColor(); }
+        if(save()){ toast(c.name+' deleted'); draw(); render(); }
+      } else {
+        deleting = c.id; draw();
+      }
+    }));
+    function commit(){
+      const name = nameIn.value.trim().slice(0,30);
+      if(ed){
+        const problem = checkCatName(name, ed.id);
+        if(problem){ err.textContent = problem; nameIn.focus(); return; }
+        ed.name = name; ed.color = color;
+        if(!save()) return;
+        toast('Changes saved');
+      } else {
+        const r = addCategory(name, color);
+        if(r.error){ err.textContent = r.error; nameIn.focus(); return; }
+        if(!save()) return;
+        toast(r.cat.name+' added');
+      }
+      editing = null; color = nextColor(); draw(); render();
+    }
+    nameIn.addEventListener('keydown', e => { if(e.key === 'Enter'){ e.preventDefault(); commit(); } });
+    nameIn.addEventListener('input', () => { err.textContent = ''; });
+    body.querySelector(ed ? '#c-save' : '#c-add').addEventListener('click', commit);
+    if(ed) body.querySelector('#c-cancel').addEventListener('click', () => { editing = null; color = nextColor(); draw(); });
+    else body.querySelector('#c-done').addEventListener('click', closeSheet);
+  }
+  draw();
+}
+
 async function exportData(){
-  const payload = JSON.stringify({app:'ledger', version:1, exportedAt:new Date().toISOString(), currency:state.currency, entries:state.entries}, null, 2);
+  const payload = JSON.stringify({app:'ledger', version:2, exportedAt:new Date().toISOString(), currency:state.currency, categories:state.categories, entries:state.entries}, null, 2);
   const name = 'ledger-backup-' + todayStr() + '.json';
   const file = new File([payload], name, {type:'application/json'});
   const done = () => { state.lastBackup = Date.now(); save(); };
@@ -563,12 +744,14 @@ document.getElementById('restore-input').addEventListener('change', async e => {
     ).map(x => {
       const r = {id: String(x.id || '').replace(/[^\w-]/g,'') || uid(), type:x.type, amount:x.amount, date:x.date,
                  note: typeof x.note === 'string' ? x.note.slice(0,300) : '', createdAt: Number(x.createdAt) || Date.now()};
-      if(r.type === 'expense') r.category = CATS.some(c => c.id === x.category) ? x.category : 'other';
+      if(r.type === 'expense') r.category = String(x.category || '').replace(/[^\w-]/g,'');
       return r;
     });
     const when = d.exportedAt ? ' from ' + new Date(d.exportedAt).toLocaleDateString() : '';
     if(!confirm('Replace what\u2019s on this device with the backup'+when+' ('+clean.length+' entries)?')) return;
     state.entries = clean;
+    state.categories = cleanCats(d.categories);   // older backups have none, so the starting five are used
+    ensureCategories(state);
     if(typeof d.currency === 'string' && d.currency) state.currency = d.currency.slice(0,4);
     if(save()){ closeSheet(); location.hash = ''; render(); toast('Backup restored'); }
   }catch(err){
