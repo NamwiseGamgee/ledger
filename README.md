@@ -19,6 +19,13 @@ A simple, calm monthly budget app that runs in your browser and installs on your
 - **Works offline.** Once installed, it opens without an internet connection.
 - **Backup and restore.** Download a backup file, including your categories, and restore it on another device.
 - **Light and dark mode.** Follows your device's setting.
+- **Search.** On the All-time insights page, search any word. It isn't case-sensitive. Entries in a matching category show first, then entries with that word in their notes, then matching loans. Results are grouped by month with subtotals.
+- **Owed to you and money you owe.** Track loans with anyone. Record money you lent, paybacks you received, money you borrowed, and repayments you made. Each person has a running balance, shown as negative when you owe them.
+- **Mark loans as paid.** Cross off a loan when it's paid in full, or record partial payments. Crossed-off loans stay in each person's history, so you have a full log of who paid what and when.
+- **Loans count toward your money.** Lending or repaying a loan comes out of that month's totals, and getting paid back or borrowing adds to them. Money people still owe you never counts until they actually pay.
+- **Calculator in amount fields.** Type math like `344.87-3.87` and it saves $341.00. It supports + − × ÷ and brackets, shows the result as you type, and has math keys for the iPhone keyboard.
+- **Custom category colors.** Pick from bright quick colors, use your device's color picker, type a hex code, or fine-tune with hue, strength, and brightness sliders.
+- **Clear color coding.** Green for money coming in, red for money going out, and blue for money still owed to you.
 
 ## How to use it
 
