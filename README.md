@@ -18,7 +18,7 @@ A simple monthly budget app that runs in your browser and installs on your phone
 
 ## How to use it
 
-- Tap **+ Salary**, **− Expense**, or **+ Deposit** to add an entry. Tap any entry to edit or delete it.
+- Tap **+ Salary**, **− Expense** to add an entry. Tap any entry to edit or delete it.
 - Tap **See breakdown** or a past month to see its details.
 - Tap **Owed to you** to track loans, and **All-time insights** to see trends or search.
 - Tap the gear icon to manage categories, change the currency, or back up your data.
