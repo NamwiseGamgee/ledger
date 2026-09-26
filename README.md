@@ -13,10 +13,8 @@ A simple monthly budget app that runs in your browser and installs on your phone
 - **All-time insights.** See what share of your income went to each category, plus your monthly averages.
 - **Search.** Find entries by category, note, or person, grouped by month. Not case-sensitive.
 - **Loans.** Track money you lend and borrow with anyone. Record partial payments or mark loans as paid, with a full history. Loans count toward your monthly totals only when money actually changes hands.
-- **Built-in calculator.** Type math like `344.87-3.87` in any amount field.
 - **Edit anything.** Fix or delete any entry, and all totals update automatically.
 - **Works offline.** Saved on your device until you delete it, with backup and restore.
-- **Clear colors.** Green for money in, red for money out, with light and dark mode.
 
 ## How to use it
 
@@ -32,6 +30,7 @@ A simple monthly budget app that runs in your browser and installs on your phone
 **Android:** Open the link in Chrome, tap ⋮, then **Install app** or **Add to Home screen**.
 
 **Mac:** In Safari, choose **File → Add to Dock**. In Chrome, use the install option in the address bar.
+**Windows:** Open the link in Edge or Chrome, then click the install icon in the address bar (or in Edge, go to **⋯ → Apps → Install this site as an app**).
 
 ## Privacy
 
