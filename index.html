@@ -56,9 +56,9 @@ a{color:inherit}
 .in-text{color:var(--in)} .out-text{color:var(--out)} .quiet{color:var(--muted)} .owed-text{color:var(--accent)}
 
 .wrap{max-width:560px;margin:0 auto;padding:calc(env(safe-area-inset-top,0px) + 10px) 18px calc(env(safe-area-inset-bottom,0px) + 48px)}
-/* iPhone home-screen app: keep the top bar clear of the clock and battery */
-.ios-app .wrap{padding-top:max(calc(env(safe-area-inset-top,0px) + 10px), 58px)}
-.ios-app body::before{content:"";position:fixed;top:0;left:0;right:0;height:max(env(safe-area-inset-top,0px), 50px);background:var(--bg);z-index:30;pointer-events:none}
+/* iPhone home-screen app: only when the page is drawn behind the clock and battery,
+   push the top bar down so it starts below them */
+.ios-app.under-bar .wrap{padding-top:max(calc(env(safe-area-inset-top,0px) + 10px), 58px)}
 
 .topbar{display:flex;align-items:center;justify-content:space-between;min-height:48px;margin-bottom:10px}
 .brand{font-size:19px;font-weight:700;letter-spacing:-.01em;display:flex;align-items:center;gap:10px}
@@ -79,6 +79,9 @@ a{color:inherit}
 .tile-top svg{flex:none;margin-top:4px;color:#fff}
 .tile-amt{display:block;color:#fff;font-size:clamp(21px,6.2vw,28px);font-weight:700;letter-spacing:-.02em;line-height:1.1;overflow-wrap:anywhere}
 .tile-amt.neg{color:#FFB3C2}
+.debt-pill{display:table;margin:10px 0 0 auto;background:#E11A45;color:#fff;border-radius:999px;padding:4px 10px;font-size:12.5px;font-weight:700;line-height:1.25;white-space:nowrap}
+.after-debt{color:var(--muted);font-size:14px;margin:6px 0 0}
+.after-debt strong{font-weight:700}
 .tile-sub{display:block;color:rgba(255,255,255,.78);font-size:13px;line-height:1.35;margin-top:4px}
 
 .panel{background:var(--surface);border:1px solid var(--line);border-radius:28px;padding:22px 20px 20px}
@@ -110,7 +113,7 @@ h1{font-size:26px;line-height:1.15;margin:0;font-weight:700;letter-spacing:-.015
 .btn.danger{background:transparent;color:var(--out)}
 .btn.wide{width:100%;margin-top:24px}
 .row-btns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:20px}
-.add-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:20px}
+.add-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:20px}
 .add-row .btn,.row-btns .btn{padding:0 8px;gap:5px;white-space:nowrap}
 
 h2{font-size:17px;font-weight:650;margin:32px 4px 10px;display:flex;justify-content:space-between;align-items:baseline;gap:10px}
@@ -163,6 +166,7 @@ h2{font-size:17px;font-weight:650;margin:32px 4px 10px;display:flex;justify-cont
 .entry-side{text-align:right}
 .entry-amt{display:block;font-weight:600}
 .entry-date{display:block;color:var(--muted);font-size:13px;margin-top:2px}
+.of{font-weight:500;color:var(--muted);font-size:13.5px}
 .struck{text-decoration:line-through;text-decoration-thickness:1.5px;color:var(--muted)}
 .res-month{display:flex;justify-content:space-between;gap:12px;padding:9px 16px;background:var(--surface-2);font-size:13.5px;font-weight:600;color:var(--muted)}
 
@@ -205,7 +209,7 @@ h2{font-size:17px;font-weight:650;margin:32px 4px 10px;display:flex;justify-cont
 .sheet h4.sub{font-size:16px;font-weight:650;margin:24px 0 10px}
 .sheet .list{background:var(--bg)}
 .help{color:var(--muted);font-size:14.5px;line-height:1.5;margin:6px 0 0}
-.seg{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;padding:4px;border-radius:14px;background:var(--surface-2)}
+.seg{display:grid;grid-template-columns:repeat(var(--segs,2),1fr);gap:4px;padding:4px;border-radius:14px;background:var(--surface-2)}
 .seg button{border:0;background:transparent;border-radius:10px;min-height:40px;font-weight:600;color:var(--muted)}
 .seg button[aria-pressed="true"]{background:var(--surface);color:var(--in);box-shadow:0 1px 3px rgba(20,40,35,.14)}
 .seg button[data-t="expense"][aria-pressed="true"]{color:var(--out)}
@@ -345,12 +349,8 @@ function cleanDebts(list, people){
     if(!people.some(p => p.id === personId)) continue;
     const r = {id: cleanId(d.id) || uid(), personId:personId, type:d.type, amount:d.amount, date:d.date,
                note: typeof d.note === 'string' ? d.note.slice(0,300) : '', createdAt: Number(d.createdAt) || Date.now()};
-    if(d.type === 'lent' || d.type === 'borrowed'){
-      r.settledAt = DATE_RE.test(d.settledAt || '') ? d.settledAt : null;
-      r.settledBy = r.settledAt ? (d.settledBy === 'balance' ? 'balance' : 'payment') : null;
-    } else if(d.loanId){
-      r.loanId = cleanId(d.loanId);
-    }
+    // Whether a loan is paid off is worked out from the payments, so older "settled" flags are dropped.
+    if((d.type === 'paid' || d.type === 'repaid') && d.loanId) r.loanId = cleanId(d.loanId);
     out.push(r);
   }
   return out;
@@ -535,20 +535,54 @@ function allMonths(){
   return [...set].sort().reverse();
 }
 const byNewest = (a,b) => b.date.localeCompare(a.date) || (b.createdAt||0) - (a.createdAt||0);
-const keptPct = s => s.cameIn ? Math.max(0, Math.round(s.net/s.cameIn*100)) : 0;
+// Kept = what you saved, as a share of what you earned (salary and deposits).
+// Money you borrow isn't yours, so it isn't counted as kept, and repaying it isn't counted against you.
+// Money you lend counts as going out, and paybacks count as coming back.
+const keptPct = s => {
+  if(!s.income) return 0;
+  const kept = s.net - s.borrowed + s.repaid;
+  const pct = Math.max(0, kept / s.income * 100);
+  return Math.round(pct * 10) / 10;
+};
 
 /* loans between you and other people */
 const personById = id => state.people.find(p => p.id === id);
+const byOldest = (a,b) => a.date.localeCompare(b.date) || (a.createdAt||0) - (b.createdAt||0);
+// Works out how much of each loan is still unpaid.
+// Every payment goes to the oldest open loan first. A payment made with "Mark paid"
+// goes to its own loan first. Anything left over moves on to the next oldest loan.
+function allocate(ds){
+  const out = {};
+  ['lent','borrowed'].forEach(type => {
+    const loans = ds.filter(d => d.type === type).sort(byOldest);
+    loans.forEach(l => { out[l.id] = {rem:l.amount, paidOn:null}; });
+    ds.filter(d => d.type === PAY_FOR[type]).sort(byOldest).forEach(p => {
+      let left = p.amount;
+      const apply = l => {
+        const r = out[l.id], take = Math.min(r.rem, left);
+        if(take <= 0) return;
+        r.rem -= take; left -= take;
+        if(r.rem === 0) r.paidOn = p.date;
+      };
+      const own = p.loanId && loans.find(l => l.id === p.loanId);
+      if(own) apply(own);
+      for(const l of loans){ if(left <= 0) break; apply(l); }
+    });
+  });
+  return out;
+}
 function personStats(pid){
   const ds = state.debts.filter(d => d.personId === pid);
   const t = {lent:0, paid:0, borrowed:0, repaid:0};
   let last = '';
   for(const d of ds){ t[d.type] += d.amount; if(d.date > last) last = d.date; }
+  const alloc = allocate(ds);
   const theyOwe = t.lent - t.paid, iOwe = t.borrowed - t.repaid;
-  return {ds:ds, lent:t.lent, paid:t.paid, borrowed:t.borrowed, repaid:t.repaid,
+  const open = type => ds.filter(d => d.type === type && alloc[d.id].rem > 0);
+  return {ds:ds, alloc:alloc, lent:t.lent, paid:t.paid, borrowed:t.borrowed, repaid:t.repaid,
     theyOwe:theyOwe, iOwe:iOwe, net:theyOwe - iOwe, last:last,
-    openLent: ds.filter(d => d.type === 'lent' && !d.settledAt),
-    openBorrowed: ds.filter(d => d.type === 'borrowed' && !d.settledAt)};
+    openLent: open('lent'), openBorrowed: open('borrowed'),
+    paidLoans: ds.filter(d => isLoan(d.type) && alloc[d.id].rem === 0)};
 }
 // Positive net = they owe you. Negative net = you owe them.
 function owedTotals(){
@@ -558,19 +592,6 @@ function owedTotals(){
     if(n > 0){ r.theyOwe += n; r.owers++; } else if(n < 0){ r.iOwe -= n; r.owees++; }
   });
   return r;
-}
-const balanceFor = (st, loanType) => loanType === 'lent' ? st.theyOwe : st.iOwe;
-// When one side's balance reaches zero, its open loans are crossed off automatically.
-// If it goes back above zero (say a payment was deleted), those loans reopen.
-function reconcile(pid){
-  const st = personStats(pid);
-  ['lent','borrowed'].forEach(type => {
-    if(balanceFor(st, type) <= 0){
-      st.ds.forEach(d => { if(d.type === type && !d.settledAt){ d.settledAt = todayStr(); d.settledBy = 'balance'; } });
-    } else {
-      st.ds.forEach(d => { if(d.type === type && d.settledBy === 'balance'){ d.settledAt = null; d.settledBy = null; } });
-    }
-  });
 }
 function findOrCreatePerson(name){
   name = name.trim().slice(0,40);
@@ -611,7 +632,6 @@ function addRow(k){
   return '<div class="add-row">' +
     '<button class="btn in-fill" data-action="add" data-type="salary" data-month="'+k+'">'+ICON_PLUS+'Salary</button>' +
     '<button class="btn out-fill" data-action="add" data-type="expense" data-month="'+k+'">'+ICON_MINUS+'Expense</button>' +
-    '<button class="btn in-fill" data-action="add" data-type="deposit" data-month="'+k+'">'+ICON_PLUS+'Deposit</button>' +
   '</div>';
 }
 function topbar(left){
@@ -683,7 +703,8 @@ function renderHome(){
     '</section>' +
     '<a class="tile tile-owed" href="#owed">' +
       '<span class="tile-top"><span class="tile-label">Owed to you</span>'+ICON_CHEVRON+'</span>' +
-      '<div><span class="tile-amt num">'+money(o.theyOwe)+'</span><span class="tile-sub num">'+owedSub+'</span></div>' +
+      '<div><span class="tile-amt num">'+money(o.theyOwe)+'</span><span class="tile-sub num">'+owedSub+'</span>' +
+        (o.iOwe > o.theyOwe ? '<span class="debt-pill num">Total Debt '+money(o.iOwe - o.theyOwe)+'</span>' : '') + '</div>' +
     '</a>' +
   '</div>';
 
@@ -691,6 +712,7 @@ function renderHome(){
     '<div class="panel-top"><h1>'+monthLabel(cur)+'</h1><a class="link" href="#m='+cur+'">See breakdown</a></div>' +
     '<p class="big num '+netClass(s.net)+'">'+money(s.net)+'</p>' +
     '<p class="caption">'+caption+'</p>' +
+    (o.iOwe > 0 && s.count ? '<p class="after-debt num"><strong class="'+netClass(s.net - o.iOwe)+'">'+money(s.net - o.iOwe)+'</strong> after paying what you owe</p>' : '') +
     ribbon(s) + inOut(s) + addRow(cur) +
   '</section>';
 
@@ -756,7 +778,7 @@ function renderMonth(k){
 
   html += '<h2>Money in</h2><div class="list">' +
     '<div class="kv"><span>Salary<small>'+plural(s.paychecks,'paycheck')+'</small></span><strong class="num in-text">'+money(s.salary)+'</strong></div>' +
-    '<div class="kv"><span>Deposits</span><strong class="num in-text">'+money(s.deposit)+'</strong></div></div>';
+    (s.deposit ? '<div class="kv"><span>Deposits</span><strong class="num in-text">'+money(s.deposit)+'</strong></div>' : '') + '</div>';
   html += loanSection(s);
 
   html += '<h2>Entries</h2><div class="list">' + (items.length
@@ -845,7 +867,7 @@ function renderInsights(){
 
   html += '<h2>Where your money went</h2><p class="section-note">'+(s.cameIn
       ? 'Each category as a share of all the money that came in, with the average per month.'
-      : 'Add a salary or deposit to see what share of your money each category takes.')+'</p><div class="list">';
+      : 'Add a salary to see what share of your money each category takes.')+'</p><div class="list">';
   const rows = cats().slice().sort((a,b) => s.cats[b.id] - s.cats[a.id]).map(c => ({name:esc(c.name), color:c.color, v:s.cats[c.id]}));
   if(s.loanOut > 0) rows.push({name:'Lent out and repaid loans', color:'var(--loan)', v:s.loanOut});
   if(s.net > 0) rows.push({name:'Saved', color:'var(--in)', v:s.net});
@@ -861,7 +883,7 @@ function renderInsights(){
   }
   html += '<h2>Money in</h2><div class="list">' +
     '<div class="kv"><span>Salary<small>'+plural(s.paychecks,'paycheck')+'</small></span><strong class="num in-text">'+money(s.salary)+'</strong></div>' +
-    '<div class="kv"><span>Deposits</span><strong class="num in-text">'+money(s.deposit)+'</strong></div>' +
+    (s.deposit ? '<div class="kv"><span>Deposits</span><strong class="num in-text">'+money(s.deposit)+'</strong></div>' : '') +
     (s.loanIn ? '<div class="kv"><span>Paybacks and borrowed money</span><strong class="num in-text">'+money(s.loanIn)+'</strong></div>' : '') +
   '</div>';
   return html;
@@ -910,21 +932,21 @@ function renderOwed(){
   return html;
 }
 
-function loanRow(l){
+function loanRow(l, r){
   const lent = l.type === 'lent';
+  const part = r.rem < l.amount;
   return '<div class="loan"><button class="entry" data-action="edit-debt" data-id="'+l.id+'">' +
     '<span class="badge '+(lent ? 'out' : 'in')+'">'+(lent ? ICON_MINUS : ICON_PLUS)+'</span>' +
-    '<span class="entry-main"><span class="entry-title num">'+money(l.amount)+'</span>' +
+    '<span class="entry-main"><span class="entry-title num">'+money(r.rem)+(part ? ' <span class="of">left of '+money(l.amount)+'</span>' : '')+'</span>' +
       '<span class="entry-note">'+(lent ? 'Lent on ' : 'Borrowed on ')+dayLabel(l.date)+(l.note ? ', '+esc(l.note) : '')+'</span></span><span></span>' +
     '</button><button class="mini '+(lent ? 'in-fill' : 'out-fill')+'" data-action="settle" data-id="'+l.id+'">'+(lent ? 'Mark paid' : 'Mark repaid')+'</button></div>';
 }
-function historyRow(d){
+function historyRow(d, r){
   if(isLoan(d.type)){
     const lent = d.type === 'lent';
-    const how = d.settledBy === 'balance' ? (lent ? 'Covered by paybacks' : 'Covered by your repayments') : (lent ? 'Paid back' : 'You repaid it');
     return '<button class="entry" data-action="edit-debt" data-id="'+d.id+'">' +
       '<span class="badge done">'+ICON_CHECK+'</span>' +
-      '<span class="entry-main"><span class="entry-title">'+how+' on '+dayLabel(d.settledAt)+'</span>' +
+      '<span class="entry-main"><span class="entry-title">'+(lent ? 'Paid off on ' : 'You paid it off on ')+dayLabel(r.paidOn)+'</span>' +
         '<span class="entry-note">'+(lent ? 'Loan from ' : 'Borrowed on ')+dayLabel(d.date)+(d.note ? ', '+esc(d.note) : '')+'</span></span>' +
       '<span class="entry-side"><span class="entry-amt num struck">'+money(d.amount)+'</span></span>' +
     '</button>';
@@ -932,7 +954,7 @@ function historyRow(d){
   const inn = d.type === 'paid';
   return '<button class="entry" data-action="edit-debt" data-id="'+d.id+'">' +
     '<span class="badge '+(inn ? 'in' : 'out')+'">'+(inn ? ICON_PLUS : ICON_MINUS)+'</span>' +
-    '<span class="entry-main"><span class="entry-title">'+(inn ? 'Partial payback' : 'You paid back part')+'</span>' +
+    '<span class="entry-main"><span class="entry-title">'+(inn ? 'Paid you back' : 'You paid back')+'</span>' +
       (d.note ? '<span class="entry-note">'+esc(d.note)+'</span>' : '') + '</span>' +
     '<span class="entry-side"><span class="entry-amt num '+(inn ? 'in-text' : 'out-text')+'">'+money(inn ? d.amount : -d.amount, {sign:true})+'</span><span class="entry-date">'+dayLabel(d.date)+'</span></span>' +
   '</button>';
@@ -940,11 +962,12 @@ function historyRow(d){
 function renderPerson(pid){
   const p = personById(pid);
   if(!p) return renderOwed();
-  const st = personStats(pid), n = st.net, name = esc(p.name);
+  const st = personStats(pid), n = st.net, name = esc(p.name), A = st.alloc;
   const openLent = st.openLent.slice().sort(byNewest), openBor = st.openBorrowed.slice().sort(byNewest);
-  const evDate = d => isLoan(d.type) ? d.settledAt : d.date;
-  // Crossed-off loans stand for their own payment, so the linked payment isn't listed twice.
-  const history = st.ds.filter(d => isLoan(d.type) ? !!d.settledAt : !d.loanId)
+  const evDate = d => isLoan(d.type) ? A[d.id].paidOn : d.date;
+  // A "Mark paid" payment is shown by its crossed-off loan, so it isn't listed twice.
+  const payments = st.ds.filter(d => !isLoan(d.type) && !(d.loanId && A[d.loanId]));
+  const history = st.paidLoans.concat(payments)
     .sort((a,b) => evDate(b).localeCompare(evDate(a)) || (b.createdAt||0) - (a.createdAt||0));
 
   let html = topbar(backLink('#owed','Owed to you')) + banner();
@@ -962,26 +985,20 @@ function renderPerson(pid){
   '</section>';
 
   if(st.lent || !st.borrowed){
-    const sum = openLent.reduce((s,l) => s + l.amount, 0);
-    html += '<h2>'+name+' still owes you</h2>';
-    if(openLent.length && sum > st.theyOwe){
-      html += '<p class="section-note">'+money(sum - st.theyOwe)+' of these has already come back in partial paybacks, so '+name+' owes you '+money(Math.max(0, st.theyOwe))+' in total.</p>';
-    }
-    html += '<div class="list">' + (openLent.length ? openLent.map(loanRow).join('')
-      : '<p class="empty">No open loans. Tap <strong>Lent more</strong> when '+name+' borrows money.</p>') + '</div>';
+    html += '<h2>'+name+' still owes you</h2>' +
+      (openLent.length ? '<p class="section-note">Payments go toward the oldest loan first.</p>' : '') +
+      '<div class="list">' + (openLent.length ? openLent.map(l => loanRow(l, A[l.id])).join('')
+        : '<p class="empty">No open loans. Tap <strong>Lent more</strong> when '+name+' borrows money.</p>') + '</div>';
   }
   if(st.borrowed){
-    const sum = openBor.reduce((s,l) => s + l.amount, 0);
-    html += '<h2>You still owe '+name+'</h2>';
-    if(openBor.length && sum > st.iOwe){
-      html += '<p class="section-note">You’ve already paid back '+money(sum - st.iOwe)+' of these in parts, so you owe '+name+' '+money(Math.max(0, st.iOwe))+' in total.</p>';
-    }
-    html += '<div class="list">' + (openBor.length ? openBor.map(loanRow).join('')
-      : '<p class="empty">You don’t owe '+name+' anything.</p>') + '</div>';
+    html += '<h2>You still owe '+name+'</h2>' +
+      (openBor.length ? '<p class="section-note">Your repayments go toward the oldest loan first.</p>' : '') +
+      '<div class="list">' + (openBor.length ? openBor.map(l => loanRow(l, A[l.id])).join('')
+        : '<p class="empty">You don’t owe '+name+' anything.</p>') + '</div>';
   }
 
-  html += '<h2>History</h2><p class="section-note">Loans marked as paid stay here, crossed out, along with partial payments.</p><div class="list">' +
-    (history.length ? history.map(historyRow).join('') : '<p class="empty">Nothing paid back yet.</p>') + '</div>';
+  html += '<h2>History</h2><p class="section-note">Paid-off loans stay here, crossed out, along with every payment.</p><div class="list">' +
+    (history.length ? history.map(d => historyRow(d, A[d.id])).join('') : '<p class="empty">Nothing paid back yet.</p>') + '</div>';
 
   html += '<div class="row-btns" style="margin-top:24px">' +
     '<button class="btn" data-action="rename-person" data-person="'+pid+'">Rename</button>' +
@@ -1044,16 +1061,17 @@ function openEntry(opts){
   const draft = entry ? {type:entry.type, category:catOf(entry).id}
                       : {type:opts.type || 'expense', category:(catById('grocery') || cats()[0]).id};
   const date = entry ? entry.date : (month === currentMonth() ? todayStr() : month + '-01');
+  const segTypes = entry && entry.type === 'deposit' ? TYPES : ['salary','expense'];
 
   const html =
     '<h3>'+(entry ? 'Edit entry' : 'New entry')+'</h3>' +
-    '<div class="seg" role="group" aria-label="Entry type">' +
-      TYPES.map(t => '<button type="button" data-t="'+t+'">'+TYPE_NAME[t]+'</button>').join('') + '</div>' +
+    '<div class="seg" role="group" aria-label="Entry type" style="--segs:'+segTypes.length+'">' +
+      segTypes.map(t => '<button type="button" data-t="'+t+'">'+TYPE_NAME[t]+'</button>').join('') + '</div>' +
     amountField('f-amount', entry ? (entry.amount/100).toFixed(2) : '') +
     '<p class="err" id="f-err" role="alert"></p>' +
     '<div class="field" id="f-cat"><span>Category</span><div class="chips" id="f-chips"></div>' +
-      '<div class="new-cat" id="f-newcat" hidden><input class="input" id="f-newcat-name" maxlength="30" autocomplete="off" placeholder="New category name" aria-label="New category name">' +
-      '<button type="button" class="btn primary" id="f-newcat-add">Add</button></div>' +
+      '<div id="f-newcat" hidden><div class="new-cat"><input class="input" id="f-newcat-name" maxlength="30" autocomplete="off" placeholder="New category name" aria-label="New category name">' +
+      '<button type="button" class="btn primary" id="f-newcat-add">Add</button></div><div id="f-newcat-pick"></div></div>' +
     '</div>' +
     '<label class="field"><span>Date</span><input class="input" type="date" id="f-date" value="'+date+'"></label>' +
     '<label class="field"><span>Note</span><input class="input" id="f-note" maxlength="300" autocomplete="off" value="'+(entry ? esc(entry.note || '') : '')+'"></label>' +
@@ -1067,6 +1085,7 @@ function openEntry(opts){
   const $ = sel => sheet.querySelector(sel);
   const amountIn = $('#f-amount'), dateIn = $('#f-date'), noteIn = $('#f-note'), err = $('#f-err'), saveBtn = $('#f-save');
   const chipsEl = $('#f-chips'), newCatRow = $('#f-newcat'), newCatIn = $('#f-newcat-name');
+  let newCatColor = null;
 
   function drawChips(){
     chipsEl.innerHTML = cats().map(c => '<button type="button" class="chip" data-c="'+c.id+'"><i class="dot" style="background:'+c.color+'"></i>'+esc(c.name)+'</button>').join('') +
@@ -1088,11 +1107,18 @@ function openEntry(opts){
   chipsEl.addEventListener('click', e => {
     const b = e.target.closest('button');
     if(!b) return;
-    if(b.dataset.new){ newCatRow.hidden = false; newCatIn.focus(); return; }
+    if(b.dataset.new){
+      if(newCatRow.hidden){
+        const pick = $('#f-newcat-pick');
+        pick.innerHTML = pickerHTML();
+        wirePicker(pick, nextColor(), c => { newCatColor = c; });
+      }
+      newCatRow.hidden = false; newCatIn.focus(); return;
+    }
     draft.category = b.dataset.c; sync();
   });
   function addNewCat(){
-    const r = addCategory(newCatIn.value);
+    const r = addCategory(newCatIn.value, newCatColor);
     if(r.error){ err.textContent = r.error; newCatIn.focus(); return; }
     if(!save()) return;
     err.textContent = '';
@@ -1159,10 +1185,19 @@ function openDebt(opts){
     if(!personId && choices.length === 1) personId = choices[0].id;
   }
 
+  // For an existing loan: how much is left, and whether it was crossed off with "Mark paid".
+  const info = debt && loan ? personStats(debt.personId).alloc[debt.id] : null;
+  const markPays = debt && loan ? state.debts.filter(d => d.loanId === debt.id) : [];
+  const markedOff = !!(info && info.rem === 0 && markPays.length);
+  const status = !info ? ''
+    : info.rem === 0 ? (type === 'lent' ? 'Paid off on ' : 'You paid it off on ')+dayLabel(info.paidOn)+'.'
+    : info.rem < debt.amount ? money(debt.amount - info.rem)+' paid so far, '+money(info.rem)+' left.'
+    : 'Nothing paid back yet.';
+
   const title = debt ? ui.edit : ui.title;
   const html = '<h3>'+title+'</h3>' +
     (debt
-      ? '<p class="help" style="margin-top:-8px">'+ui.fixed+' <strong>'+esc(personById(personId).name)+'</strong></p>'
+      ? '<p class="help" style="margin-top:-8px">'+ui.fixed+' <strong>'+esc(personById(personId).name)+'</strong>'+(status ? '. '+status : '')+'</p>'
       : '<div class="field" style="margin-top:0"><span>'+ui.who+'</span><div class="chips" id="d-people">' +
           choices.map(p => '<button type="button" class="chip" data-p="'+p.id+'">'+esc(p.name)+'</button>').join('') + '</div>' +
           (loan ? '<input class="input" id="d-newname" maxlength="40" autocomplete="off" placeholder="'+(choices.length ? 'Or type a new name' : 'Type their name')+'" aria-label="Person’s name" style="margin-top:10px">' : '') +
@@ -1174,9 +1209,7 @@ function openDebt(opts){
     '<label class="field"><span>Note</span><input class="input" id="d-note" maxlength="300" autocomplete="off" placeholder="'+ui.note+'" value="'+(debt ? esc(debt.note || '') : '')+'"></label>' +
     '<div class="actions">' +
       '<button class="btn '+(inn ? 'in-fill' : 'out-fill')+'" id="d-save">'+(debt ? 'Save changes' : ui.save)+'</button>' +
-      (debt && loan ? (debt.settledAt
-        ? '<button class="btn" id="d-unsettle">'+(type === 'lent' ? 'Mark as not paid back' : 'Mark as not repaid')+'</button>'
-        : '<button class="btn '+(type === 'lent' ? 'in-fill' : 'out-fill')+'" id="d-settle">'+(type === 'lent' ? 'Mark as paid back' : 'Mark as repaid')+'</button>') : '') +
+      (markedOff ? '<button class="btn" id="d-unsettle">'+(type === 'lent' ? 'Mark as not paid back' : 'Mark as not repaid')+'</button>' : '') +
       (debt ? '<button class="btn danger" id="d-del">Delete</button>' : '') +
       '<button class="btn plain" id="d-cancel">Cancel</button>' +
     '</div>';
@@ -1188,6 +1221,18 @@ function openDebt(opts){
   wireCalc(sheet, amountIn);
 
   function limitFor(pid){ return openFor(personStats(pid), type) + (debt ? debt.amount : 0); }
+  // Loans can't add up to less than what has already been paid back on them.
+  function tooLow(pid, paid){
+    const who = personById(pid).name;
+    return (type === 'lent' ? who+' has already paid you back '+moneyText(paid) : 'You’ve already paid '+who+' back '+moneyText(paid)) +
+      ', so the loans can’t add up to less than that. Edit or delete a payment first.';
+  }
+  function loanCheck(pid, loanChange, paidChange){
+    const st = personStats(pid);
+    const paidAfter = (type === 'lent' ? st.paid : st.repaid) + paidChange;
+    const totalAfter = (type === 'lent' ? st.lent : st.borrowed) + loanChange;
+    return totalAfter < paidAfter ? tooLow(pid, paidAfter) : '';
+  }
   function sync(){
     sheet.querySelectorAll('[data-p]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.p === personId)));
     const p = personId && personById(personId);
@@ -1223,21 +1268,20 @@ function openDebt(opts){
         amountIn.focus(); return;
       }
     }
+    const delta = debt ? amount - debt.amount : 0;
+    if(loan && debt){
+      // Payments are real money, so they never change here. If a loan is corrected downward,
+      // anything already paid on it goes toward the next oldest loan instead.
+      const problem = loanCheck(pid, delta, 0);
+      if(problem){ err.textContent = problem; amountIn.focus(); return; }
+    }
     if(!pid) pid = findOrCreatePerson(typed).id;
     const note = $('#d-note').value.trim();
     if(debt){
       debt.amount = amount; debt.date = date; debt.note = note;
-      if(loan && debt.settledBy === 'payment'){
-        // keep the payment that crossed this loan off in step with the loan
-        const linked = state.debts.find(d => d.loanId === debt.id);
-        if(linked) linked.amount = amount;
-      }
     } else {
-      const rec = {id:'d_'+uid(), personId:pid, type:type, amount:amount, date:date, note:note, createdAt:Date.now()};
-      if(loan){ rec.settledAt = null; rec.settledBy = null; }
-      state.debts.push(rec);
+      state.debts.push({id:'d_'+uid(), personId:pid, type:type, amount:amount, date:date, note:note, createdAt:Date.now()});
     }
-    reconcile(pid);
     if(!save()) return;
     closeSheet(); render();
     toast(debt ? 'Changes saved' : summary(pid));
@@ -1248,40 +1292,32 @@ function openDebt(opts){
   amountIn.addEventListener('input', () => { err.textContent = ''; });
   if(debt){
     $('#d-del').addEventListener('click', () => {
-      if(!confirm(loan ? 'Delete this loan? If it was marked as paid, that payment is removed too.' : 'Delete this payment?')) return;
-      if(debt.loanId){
-        const l = state.debts.find(d => d.id === debt.loanId);
-        if(l){ l.settledAt = null; l.settledBy = null; }
+      if(loan){
+        const linked = markPays.reduce((s,d) => s + d.amount, 0);
+        const problem = loanCheck(debt.personId, -debt.amount, -linked);
+        if(problem){ err.textContent = problem; return; }
       }
+      if(!confirm(loan ? 'Delete this loan?'+(markPays.length ? ' The payment recorded when you marked it paid is removed too.' : '') : 'Delete this payment?')) return;
       state.debts = state.debts.filter(d => d.id !== debt.id && d.loanId !== debt.id);
-      reconcile(debt.personId);
       if(save()){ closeSheet(); render(); toast('Deleted'); }
     });
     const un = $('#d-unsettle');
     if(un) un.addEventListener('click', () => { closeSheet(); unsettleLoan(debt); });
-    const se = $('#d-settle');
-    if(se) se.addEventListener('click', () => { closeSheet(); settleLoan(debt); });
   } else if(!loan || personId) amountIn.focus();
 }
 
-// "Mark paid" / "Mark repaid": records a payment for this loan (up to what's still open) and crosses it off.
+// "Mark paid" / "Mark repaid": records a payment for exactly what's left on this loan.
 function settleLoan(loan){
-  const st = personStats(loan.personId);
-  const pay = Math.min(loan.amount, Math.max(0, balanceFor(st, loan.type)));
-  if(pay > 0){
-    state.debts.push({id:'d_'+uid(), personId:loan.personId, type:PAY_FOR[loan.type], amount:pay, date:todayStr(), note:'', loanId:loan.id, createdAt:Date.now()});
-  }
-  loan.settledAt = todayStr();
-  loan.settledBy = pay > 0 ? 'payment' : 'balance';
-  reconcile(loan.personId);
+  const r = personStats(loan.personId).alloc[loan.id];
+  if(!r || r.rem <= 0) return;
+  state.debts.push({id:'d_'+uid(), personId:loan.personId, type:PAY_FOR[loan.type], amount:r.rem, date:todayStr(), note:'', loanId:loan.id, createdAt:Date.now()});
   if(!save()) return;
   render();
   toast((loan.type === 'lent' ? 'Marked paid. ' : 'Marked repaid. ') + summary(loan.personId));
 }
+// Undo "Mark paid": removes the payment it recorded.
 function unsettleLoan(loan){
   state.debts = state.debts.filter(d => d.loanId !== loan.id);
-  loan.settledAt = null; loan.settledBy = null;
-  reconcile(loan.personId);
   if(save()){ render(); toast('Loan is open again'); }
 }
 function renamePerson(pid){
@@ -1324,7 +1360,7 @@ function openSettings(){
       currencies.map(c => '<option'+(c === state.currency ? ' selected' : '')+'>'+esc(c)+'</option>').join('') + '</select></label>' +
     '<div class="field"><span>Expense categories</span><button class="btn" id="s-cats" style="width:100%">Manage categories ('+cats().length+')</button></div>' +
     '<div class="data-box"><strong>'+plural(count,'entry').replace('entrys','entries')+(owedCount ? ' and '+plural(owedCount,'owed-money record') : '')+' saved on this device</strong>' +
-      '<p class="help">Everything stays here until you delete it, even after closing or refreshing. Your iPhone and your MacBook each keep their own copy. To move everything between them, download a backup on one and restore it on the other.</p>' +
+      '<p class="help">Everything stays on this device until you delete it. Each device keeps its own copy, so to move your data, download a backup here and restore it on the other device.</p>' +
       '<p class="help">'+last+'</p></div>' +
     '<div class="actions">' +
       '<button class="btn primary" id="s-backup">Download backup</button>' +
@@ -1571,6 +1607,15 @@ document.addEventListener('visibilitychange', () => {
 
 if(isIOS && (navigator.standalone || matchMedia('(display-mode: standalone)').matches)){
   document.documentElement.classList.add('ios-app');
+  // If the app fills the whole screen (page drawn under the status bar), leave room at the top.
+  // If iPhone already starts the page below the status bar, add no extra space.
+  const checkBar = () => {
+    if(window.innerWidth > window.innerHeight) return;   // ignore landscape
+    const full = Math.abs(screen.height - window.innerHeight) < 8;
+    document.documentElement.classList.toggle('under-bar', full);
+  };
+  checkBar();
+  window.addEventListener('resize', checkBar);
 }
 render();
 
