@@ -1,6 +1,6 @@
 # Ledger
 
-A simple monthly budget app that runs in your browser and installs on your phone like a regular app. No account, no sign-up, and your data never leaves your device.
+A simple monthly budget app that runs in your browser and installs on your phone like a regular app. No account, no sign-up, and your data never leaves your device (made for my personal use, but you can use it if you want; pretty neat).
 
 **Open the app:** https://namwisegamgee.github.io/ledger/
 
@@ -30,7 +30,8 @@ A simple monthly budget app that runs in your browser and installs on your phone
 **Android:** Open the link in Chrome, tap ⋮, then **Install app** or **Add to Home screen**.
 
 **Mac:** In Safari, choose **File → Add to Dock**. In Chrome, use the install option in the address bar.
-**Windows:** Open the link in Edge or Chrome, then click the install icon in the address bar (or in Edge, go to **⋯ → Apps → Install this site as an app**).
+
+**Windows laptop:** Open the link in Edge or Chrome, then click the install icon in the address bar (or in Edge, go to **⋯ → Apps → Install this site as an app**).
 
 ## Privacy
 
