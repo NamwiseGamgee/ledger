@@ -79,7 +79,6 @@ a{color:inherit}
 .tile-top svg{flex:none;margin-top:4px;color:#fff}
 .tile-amt{display:block;color:#fff;font-size:clamp(21px,6.2vw,28px);font-weight:700;letter-spacing:-.02em;line-height:1.1;overflow-wrap:anywhere}
 .tile-amt.neg{color:#FFB3C2}
-.debt-pill{display:table;margin:10px 0 0 auto;background:#E11A45;color:#fff;border-radius:999px;padding:4px 10px;font-size:12.5px;font-weight:700;line-height:1.25;white-space:nowrap}
 .after-debt{color:var(--muted);font-size:14px;margin:6px 0 0}
 .after-debt strong{font-weight:700}
 .tile-sub{display:block;color:rgba(255,255,255,.78);font-size:13px;line-height:1.35;margin-top:4px}
@@ -177,6 +176,14 @@ h2{font-size:17px;font-weight:650;margin:32px 4px 10px;display:flex;justify-cont
 .search input::-webkit-search-cancel-button{-webkit-appearance:none}
 .search button{border:0;background:var(--surface-2);color:var(--muted);border-radius:50%;width:28px;height:28px;display:grid;place-items:center;flex:none}
 .results{margin-bottom:8px}
+.tabs{display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:4px;border-radius:14px;background:var(--surface-2);margin-bottom:14px}
+.tabs a{display:flex;align-items:center;justify-content:center;min-height:40px;border-radius:10px;font-weight:600;color:var(--muted);text-decoration:none}
+.tabs a[aria-current="page"]{background:var(--surface);color:var(--ink);box-shadow:0 1px 3px rgba(20,40,35,.14)}
+.dates{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.dates span{display:block;color:var(--muted);font-size:13.5px;margin:0 0 5px 2px}
+.dates .input{background:var(--surface);min-width:0}
+.quick{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 6px}
+.quick .chip{min-height:34px;padding:6px 12px;font-size:14px;background:var(--surface)}
 .results h2:first-child{margin-top:8px}
 
 /* people */
@@ -190,6 +197,10 @@ h2{font-size:17px;font-weight:650;margin:32px 4px 10px;display:flex;justify-cont
 .mini.in-fill{background:var(--in-fill);color:var(--in-ink)}
 .mini.out-fill{background:var(--out-fill);color:var(--out-ink)}
 .owed-big{font-size:27px !important;font-weight:700 !important;letter-spacing:-.02em}
+.net-row{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:16px;padding-top:14px;border-top:1px solid var(--line)}
+.net-row strong{display:block;font-size:15.5px;font-weight:650}
+.net-row small{display:block;color:var(--muted);font-size:13px;margin-top:2px}
+.net-row .net-amt{font-size:24px;font-weight:700;letter-spacing:-.02em;white-space:nowrap}
 .io-sub{display:block;color:var(--muted);font-size:13px;margin-top:2px}
 .mini.danger{background:transparent;color:var(--out)}
 
@@ -241,6 +252,10 @@ select.input{background-image:linear-gradient(45deg,transparent 50%,var(--muted)
 .swatch{width:34px;height:34px;border-radius:50%;border:0;padding:0;box-shadow:inset 0 0 0 1px rgba(0,0,0,.08)}
 .swatch[aria-pressed="true"]{box-shadow:0 0 0 2px var(--surface),0 0 0 4px var(--ink)}
 .actions{display:grid;gap:8px;margin-top:22px}
+.check{display:flex;gap:12px;align-items:flex-start;margin-top:14px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--bg);cursor:pointer}
+.check input{width:22px;height:22px;margin:1px 0 0;flex:none;accent-color:var(--accent)}
+.check strong{display:block;font-size:15px;font-weight:600}
+.check small{display:block;color:var(--muted);font-size:13.5px;line-height:1.4;margin-top:2px}
 .swatch.rainbow{position:relative;overflow:hidden;background:conic-gradient(#FF1744,#FFEA00,#00E676,#00E5FF,#2979FF,#D500F9,#FF1744)}
 .swatch.rainbow input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;border:0;padding:0}
 .pk-top{display:flex;align-items:center;gap:10px;margin-top:16px}
@@ -351,6 +366,7 @@ function cleanDebts(list, people){
                note: typeof d.note === 'string' ? d.note.slice(0,300) : '', createdAt: Number(d.createdAt) || Date.now()};
     // Whether a loan is paid off is worked out from the payments, so older "settled" flags are dropped.
     if((d.type === 'paid' || d.type === 'repaid') && d.loanId) r.loanId = cleanId(d.loanId);
+    if((d.type === 'lent' || d.type === 'borrowed') && d.old) r.old = true;
     out.push(r);
   }
   return out;
@@ -515,7 +531,7 @@ function statsWhere(test){
   // Money only counts when it actually moves: lending or repaying takes it out,
   // getting paid back or borrowing brings it in. What people still owe you never counts.
   for(const d of state.debts){
-    if(!test(d)) continue;
+    if(d.old || !test(d)) continue;   // loans from before Ledger never touch your balance
     s.debts.push(d);
     s[d.type] += d.amount;
     if(DEBT_IN[d.type]) s.loanIn += d.amount; else s.loanOut += d.amount;
@@ -530,7 +546,7 @@ function statsWhere(test){
 const statsFor = k => statsWhere(x => monthOf(x.date) === k);   // one month only
 const statsAll = () => statsWhere(() => true);                   // every month
 function allMonths(){
-  const set = new Set(state.entries.map(e => monthOf(e.date)).concat(state.debts.map(d => monthOf(d.date))));
+  const set = new Set(state.entries.map(e => monthOf(e.date)).concat(state.debts.filter(d => !d.old).map(d => monthOf(d.date))));
   set.add(currentMonth());
   return [...set].sort().reverse();
 }
@@ -663,6 +679,14 @@ const DEBT_LABEL = {
 };
 function debtRow(d){
   const p = personById(d.personId), inn = !!DEBT_IN[d.type];
+  if(d.old){
+    return '<button class="entry" data-action="edit-debt" data-id="'+d.id+'">' +
+      '<span class="badge done">'+(inn ? ICON_PLUS : ICON_MINUS)+'</span>' +
+      '<span class="entry-main"><span class="entry-title">'+DEBT_LABEL[d.type](esc(p ? p.name : 'Someone'))+'</span>' +
+        '<span class="entry-note">Before Ledger, not counted in your balance'+(d.note ? ', '+esc(d.note) : '')+'</span></span>' +
+      '<span class="entry-side"><span class="entry-amt num quiet">'+money(d.amount)+'</span><span class="entry-date">'+dayLabel(d.date)+'</span></span>' +
+    '</button>';
+  }
   return '<button class="entry" data-action="edit-debt" data-id="'+d.id+'">' +
     '<span class="badge '+(inn ? 'in' : 'out')+'">'+(inn ? ICON_PLUS : ICON_MINUS)+'</span>' +
     '<span class="entry-main"><span class="entry-title">'+DEBT_LABEL[d.type](esc(p ? p.name : 'Someone'))+'</span>' +
@@ -672,7 +696,7 @@ function debtRow(d){
   '</button>';
 }
 const rowFor = x => x.personId ? debtRow(x) : entryRow(x);
-const signedAmt = x => x.personId ? (DEBT_IN[x.type] ? x.amount : -x.amount) : (x.type === 'expense' ? -x.amount : x.amount);
+const signedAmt = x => x.personId ? (x.old ? 0 : DEBT_IN[x.type] ? x.amount : -x.amount) : (x.type === 'expense' ? -x.amount : x.amount);
 
 function inOut(s, three){
   return '<div class="io'+(three ? ' three' : '')+'"><div><span>Came in</span><strong class="num in-text">'+money(s.cameIn)+'</strong></div>' +
@@ -686,7 +710,7 @@ function renderHome(){
   const others = allMonths().filter(k => k !== cur);
   const caption = s.count === 0
     ? 'Add your first paycheck of '+monthName(cur)+' to get started.'
-    : s.net < 0 ? 'more went out than came in so far' : 'saved so far this month';
+    : 'net balance for this month';
 
   // Total savings only counts months that are over (before the current month).
   const finished = allMonths().filter(k => k < cur && statsFor(k).count > 0);
@@ -703,8 +727,7 @@ function renderHome(){
     '</section>' +
     '<a class="tile tile-owed" href="#owed">' +
       '<span class="tile-top"><span class="tile-label">Owed to you</span>'+ICON_CHEVRON+'</span>' +
-      '<div><span class="tile-amt num">'+money(o.theyOwe)+'</span><span class="tile-sub num">'+owedSub+'</span>' +
-        (o.iOwe > o.theyOwe ? '<span class="debt-pill num">Total Debt '+money(o.iOwe - o.theyOwe)+'</span>' : '') + '</div>' +
+      '<div><span class="tile-amt num">'+money(o.theyOwe)+'</span><span class="tile-sub num">'+owedSub+'</span></div>' +
     '</a>' +
   '</div>';
 
@@ -718,7 +741,7 @@ function renderHome(){
 
   html += '<a class="ins-card" href="#insights">' +
     '<div class="ins-top"><span><span class="ins-label">All-time insights</span>' +
-    '<span class="ins-sub">Category shares of your income, and search across every entry</span></span>'+ICON_CHEVRON+'</div>' +
+    '<span class="ins-sub">Where your money went, plus every entry with search and date filters</span></span>'+ICON_CHEVRON+'</div>' +
     ribbon(statsAll(), true) +
   '</a>';
 
@@ -755,8 +778,7 @@ function renderMonth(k){
   const isCur = k === currentMonth();
   const items = s.entries.concat(s.debts).sort(byNewest);
   const caption = s.count === 0 ? 'Nothing logged yet'
-    : s.net < 0 ? (isCur ? 'more went out than came in so far' : 'more went out than came in')
-    : (isCur ? 'saved so far' : 'net savings');
+    : isCur ? 'net balance for this month' : 'net balance for the month';
 
   let html = topbar(backLink('#','All months')) + banner();
   html += '<section class="panel">' +
@@ -790,8 +812,8 @@ function renderMonth(k){
   return html;
 }
 
-/* ----- search (on the insights page) ----- */
-let searchQuery = '';
+/* ----- all entries, search and date filters (on the insights page) ----- */
+let searchQuery = '', dateFrom = '', dateTo = '';
 function matchesCategory(e, q){
   const name = e.type === 'expense' ? catOf(e).name : TYPE_NAME[e.type];
   return name.toLowerCase().includes(q);
@@ -814,21 +836,27 @@ function groupMeta(list){
   const out = list.filter(x => signedAmt(x) < 0).reduce((s,x) => s - signedAmt(x), 0);
   const inn = list.filter(x => signedAmt(x) > 0).reduce((s,x) => s + signedAmt(x), 0);
   const parts = [list.length === 1 ? '1 entry' : list.length+' entries'];
-  if(out) parts.push(money(out)+' out');
   if(inn) parts.push(money(inn)+' in');
+  if(out) parts.push(money(out)+' out');
   return parts.join(', ');
 }
-function searchResults(raw){
+const inRange = x => (!dateFrom || x.date >= dateFrom) && (!dateTo || x.date <= dateTo);
+function rangeLabel(){
+  if(dateFrom && dateTo) return dateFrom === dateTo ? dayLabel(dateFrom) : dayLabel(dateFrom)+' to '+dayLabel(dateTo);
+  if(dateFrom) return 'From '+dayLabel(dateFrom);
+  if(dateTo) return 'Up to '+dayLabel(dateTo);
+  return '';
+}
+function searchResults(raw, entries, debts){
   const q = raw.trim().toLowerCase();
-  if(!q) return '';
-  const byCat = state.entries.filter(e => matchesCategory(e, q));
-  const byNote = state.entries.filter(e => !byCat.includes(e) && (e.note || '').toLowerCase().includes(q));
-  const byLoan = state.debts.filter(d => {
+  const byCat = entries.filter(e => matchesCategory(e, q));
+  const byNote = entries.filter(e => !byCat.includes(e) && (e.note || '').toLowerCase().includes(q));
+  const byLoan = debts.filter(d => {
     const p = personById(d.personId);
     return (p && p.name.toLowerCase().includes(q)) || (d.note || '').toLowerCase().includes(q);
   });
   if(!byCat.length && !byNote.length && !byLoan.length){
-    return '<div class="list"><p class="empty">Nothing matches “'+esc(raw.trim())+'” in your categories, notes, or loans.</p></div>';
+    return '<div class="list"><p class="empty">Nothing matches “'+esc(raw.trim())+'”'+(rangeLabel() ? ' in this date range' : ' in your categories, notes, or loans')+'.</p></div>';
   }
   let html = '';
   if(byCat.length) html += '<h2>Category matches</h2><p class="section-note num">'+groupMeta(byCat)+'</p><div class="list">'+resultGroup(byCat)+'</div>';
@@ -836,14 +864,57 @@ function searchResults(raw){
   if(byLoan.length) html += '<h2>Loans and paybacks</h2><p class="section-note num">'+groupMeta(byLoan)+'</p><div class="list">'+resultGroup(byLoan)+'</div>';
   return html;
 }
+function recordsResults(){
+  if(dateFrom && dateTo && dateFrom > dateTo) return '<div class="list"><p class="empty">The From date is after the To date.</p></div>';
+  const entries = state.entries.filter(inRange), debts = state.debts.filter(inRange);
+  if(searchQuery.trim()) return searchResults(searchQuery, entries, debts);
+  const all = entries.concat(debts);
+  if(!all.length){
+    return '<div class="list"><p class="empty">'+(rangeLabel() ? 'No entries in this date range.' : 'Nothing logged yet. Entries you add show up here.')+'</p></div>';
+  }
+  return '<h2>'+(rangeLabel() || 'Every entry')+'</h2><p class="section-note num">'+groupMeta(all)+'</p><div class="list">'+resultGroup(all)+'</div>';
+}
+function quickRanges(){
+  const t = new Date(), y = t.getFullYear(), m = t.getMonth();
+  const iso = d => d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
+  return [
+    ['This month', iso(new Date(y,m,1)), iso(new Date(y,m+1,0))],
+    ['Last month', iso(new Date(y,m-1,1)), iso(new Date(y,m,0))],
+    ['This year', y+'-01-01', y+'-12-31'],
+    ['All time', '', '']
+  ];
+}
 function updateSearch(){
   const box = document.getElementById('q-results');
-  if(box) box.innerHTML = searchResults(searchQuery);
+  if(box) box.innerHTML = recordsResults();
   const clear = document.getElementById('q-clear');
   if(clear) clear.hidden = !searchQuery;
+  document.querySelectorAll('[data-range]').forEach(b => {
+    const r = quickRanges()[+b.dataset.range];
+    b.setAttribute('aria-pressed', String(r[1] === dateFrom && r[2] === dateTo));
+  });
+}
+function recordsView(){
+  return '<label class="search">'+ICON_SEARCH +
+      '<input id="q" type="search" placeholder="Search categories, notes, people" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="search" aria-label="Search entries" value="'+esc(searchQuery)+'">' +
+      '<button type="button" id="q-clear" aria-label="Clear search"'+(searchQuery ? '' : ' hidden')+'>'+ICON_X+'</button></label>' +
+    '<div class="dates">' +
+      '<label><span>From</span><input class="input" type="date" id="q-from" value="'+dateFrom+'"></label>' +
+      '<label><span>To</span><input class="input" type="date" id="q-to" value="'+dateTo+'"></label>' +
+    '</div>' +
+    '<div class="quick" role="group" aria-label="Date range">' +
+      quickRanges().map((r,i) => '<button type="button" class="chip" data-range="'+i+'" aria-pressed="'+(r[1] === dateFrom && r[2] === dateTo)+'">'+r[0]+'</button>').join('') +
+    '</div>' +
+    '<div class="results" id="q-results">'+recordsResults()+'</div>';
 }
 
-function renderInsights(){
+function renderInsights(tab){
+  let html = topbar(backLink('#','Home')) + banner();
+  html += '<nav class="tabs" aria-label="Insights">' +
+    '<a href="#insights"'+(tab === 'records' ? '' : ' aria-current="page"')+'>Overview</a>' +
+    '<a href="#records"'+(tab === 'records' ? ' aria-current="page"' : '')+'>All entries</a></nav>';
+  if(tab === 'records') return html + recordsView();
+
   const s = statsAll();
   const cur = currentMonth();
   const used = allMonths().filter(k => statsFor(k).count > 0).sort();
@@ -851,17 +922,11 @@ function renderInsights(){
   const range = n === 0 ? 'Nothing logged yet' : n === 1 ? monthLabel(used[0]) : monthLabel(used[0]) + ' to ' + monthLabel(used[n-1]);
   const avg = v => money(n ? Math.round(v / n) : 0);
 
-  let html = topbar(backLink('#','All months')) + banner();
-  html += '<label class="search">'+ICON_SEARCH +
-    '<input id="q" type="search" placeholder="Search categories, notes, people" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="search" aria-label="Search entries" value="'+esc(searchQuery)+'">' +
-    '<button type="button" id="q-clear" aria-label="Clear search"'+(searchQuery ? '' : ' hidden')+'>'+ICON_X+'</button></label>' +
-    '<div class="results" id="q-results">'+searchResults(searchQuery)+'</div>';
-
   html += '<section class="panel">' +
     '<h1>All-time insights</h1>' +
     '<p class="caption">'+range+(n > 1 ? ' ('+n+' months)' : '')+'</p>' +
     '<p class="big num '+netClass(s.net)+'">'+money(s.net)+'</p>' +
-    '<p class="caption">'+(s.net < 0 ? 'more went out than came in overall' : 'saved overall')+(used.includes(cur) ? ', including '+monthName(cur)+' so far' : '')+'</p>' +
+    '<p class="caption">net balance across every month'+(used.includes(cur) ? ', including '+monthName(cur)+' so far' : '')+'</p>' +
     ribbon(s) + inOut(s, true) +
   '</section>';
 
@@ -899,6 +964,13 @@ function debtButtons(pid){
     '<button class="btn out-fill" data-action="debt" data-type="repaid"'+d+'>'+ICON_MINUS+(pid ? 'You repaid' : 'Repaid a loan')+'</button>' +
   '</div>';
 }
+// Net = what people owe you minus what you owe.
+function netRow(net){
+  const label = net < 0 ? 'Net debt' : net > 0 ? 'Net owed to you' : 'Net';
+  const sub = net < 0 ? 'You owe more than you\u2019re owed' : net > 0 ? 'You\u2019re owed more than you owe' : 'You\u2019re all square';
+  return '<div class="net-row"><span><strong>'+label+'</strong><small>'+sub+'</small></span>' +
+    '<strong class="net-amt num '+(net < 0 ? 'out-text' : net > 0 ? 'owed-text' : 'quiet')+'">'+money(Math.abs(net))+'</strong></div>';
+}
 function renderOwed(){
   const o = owedTotals();
   const list = state.people.map(p => ({p:p, st:personStats(p.id)}))
@@ -909,7 +981,7 @@ function renderOwed(){
     '<div class="io">' +
       '<div><span>Owed to you</span><strong class="owed-big num owed-text">'+money(o.theyOwe)+'</strong><small class="io-sub">'+(o.owers ? 'from '+peopleCount(o.owers) : 'nobody right now')+'</small></div>' +
       '<div><span>You owe</span><strong class="owed-big num '+(o.iOwe ? 'out-text' : 'quiet')+'">'+money(o.iOwe)+'</strong><small class="io-sub">'+(o.owees ? 'to '+peopleCount(o.owees) : 'nobody right now')+'</small></div>' +
-    '</div>' + debtButtons('') +
+    '</div>' + netRow(o.theyOwe - o.iOwe) + debtButtons('') +
   '</section>';
 
   html += '<h2>People</h2><div class="list">';
@@ -928,7 +1000,7 @@ function renderOwed(){
     }).join('');
   }
   html += '</div>';
-  html += '<p class="footnote">Lending money or repaying a loan comes out of that month’s money. Getting paid back or borrowing adds to it. What people still owe you never counts until they actually pay you.</p>';
+  html += '<p class="footnote">Lending money or repaying a loan comes out of that month’s money. Getting paid back or borrowing adds to it. What people still owe you never counts until they actually pay you. Loans marked as before Ledger don\u2019t change your balance, but paybacks on them do.</p>';
   return html;
 }
 
@@ -938,17 +1010,26 @@ function loanRow(l, r){
   return '<div class="loan"><button class="entry" data-action="edit-debt" data-id="'+l.id+'">' +
     '<span class="badge '+(lent ? 'out' : 'in')+'">'+(lent ? ICON_MINUS : ICON_PLUS)+'</span>' +
     '<span class="entry-main"><span class="entry-title num">'+money(r.rem)+(part ? ' <span class="of">left of '+money(l.amount)+'</span>' : '')+'</span>' +
-      '<span class="entry-note">'+(lent ? 'Lent on ' : 'Borrowed on ')+dayLabel(l.date)+(l.note ? ', '+esc(l.note) : '')+'</span></span><span></span>' +
+      '<span class="entry-note">'+(lent ? 'Lent on ' : 'Borrowed on ')+dayLabel(l.date)+(l.old ? ', before Ledger' : '')+(l.note ? ', '+esc(l.note) : '')+'</span></span><span></span>' +
     '</button><button class="mini '+(lent ? 'in-fill' : 'out-fill')+'" data-action="settle" data-id="'+l.id+'">'+(lent ? 'Mark paid' : 'Mark repaid')+'</button></div>';
 }
 function historyRow(d, r){
   if(isLoan(d.type)){
     const lent = d.type === 'lent';
+    // Crossed off with "Mark paid": show the amount that was still pending and got crossed off.
+    // Paid off by payments alone: those payments are listed separately, so no amount is repeated here.
+    const crossed = state.debts.filter(x => x.loanId === d.id).reduce((t,x) => t + x.amount, 0);
+    const earlier = d.amount - crossed;
+    const title = crossed ? 'Crossed off on ' : (lent ? 'Paid off on ' : 'You paid it off on ');
+    const note = (lent ? 'Loan of ' : 'Borrowed ')+money(d.amount)+' on '+dayLabel(d.date) +
+      (crossed && earlier > 0 ? ', '+money(earlier)+' paid before' : '') +
+      (!crossed ? ', covered by the payments listed here' : '') +
+      (d.old ? ', before Ledger' : '') + (d.note ? ', '+esc(d.note) : '');
     return '<button class="entry" data-action="edit-debt" data-id="'+d.id+'">' +
       '<span class="badge done">'+ICON_CHECK+'</span>' +
-      '<span class="entry-main"><span class="entry-title">'+(lent ? 'Paid off on ' : 'You paid it off on ')+dayLabel(r.paidOn)+'</span>' +
-        '<span class="entry-note">'+(lent ? 'Loan from ' : 'Borrowed on ')+dayLabel(d.date)+(d.note ? ', '+esc(d.note) : '')+'</span></span>' +
-      '<span class="entry-side"><span class="entry-amt num struck">'+money(d.amount)+'</span></span>' +
+      '<span class="entry-main"><span class="entry-title">'+title+dayLabel(r.paidOn)+'</span>' +
+        '<span class="entry-note">'+note+'</span></span>' +
+      '<span class="entry-side">'+(crossed ? '<span class="entry-amt num struck">'+money(crossed)+'</span>' : '')+'</span>' +
     '</button>';
   }
   const inn = d.type === 'paid';
@@ -997,7 +1078,7 @@ function renderPerson(pid){
         : '<p class="empty">You don’t owe '+name+' anything.</p>') + '</div>';
   }
 
-  html += '<h2>History</h2><p class="section-note">Paid-off loans stay here, crossed out, along with every payment.</p><div class="list">' +
+  html += '<h2>History</h2><p class="section-note">Every payment, plus loans you crossed off with the amount that was still left on them.</p><div class="list">' +
     (history.length ? history.map(d => historyRow(d, A[d.id])).join('') : '<p class="empty">Nothing paid back yet.</p>') + '</div>';
 
   html += '<div class="row-btns" style="margin-top:24px">' +
@@ -1011,6 +1092,7 @@ const app = document.getElementById('app');
 function route(){
   const h = location.hash;
   if(h === '#insights') return {view:'insights'};
+  if(h === '#records') return {view:'insights', tab:'records'};
   if(h === '#owed') return {view:'owed'};
   let m = h.match(/^#m=(\d{4}-\d{2})$/); if(m) return {view:'month', k:m[1]};
   m = h.match(/^#p=([\w-]+)$/); if(m) return {view:'person', id:m[1]};
@@ -1019,7 +1101,7 @@ function route(){
 function render(){
   const r = route();
   app.innerHTML = r.view === 'month' ? renderMonth(r.k)
-    : r.view === 'insights' ? renderInsights()
+    : r.view === 'insights' ? renderInsights(r.tab)
     : r.view === 'owed' ? renderOwed()
     : r.view === 'person' ? renderPerson(r.id)
     : renderHome();
@@ -1027,8 +1109,18 @@ function render(){
 window.addEventListener('hashchange', () => { render(); window.scrollTo(0,0); });
 document.addEventListener('input', e => {
   if(e.target.id === 'q'){ searchQuery = e.target.value; updateSearch(); }
+  else if(e.target.id === 'q-from'){ dateFrom = e.target.value; updateSearch(); }
+  else if(e.target.id === 'q-to'){ dateTo = e.target.value; updateSearch(); }
 });
 document.addEventListener('click', e => {
+  const rb = e.target.closest('[data-range]');
+  if(rb){
+    const r = quickRanges()[+rb.dataset.range];
+    dateFrom = r[1]; dateTo = r[2];
+    const f = document.getElementById('q-from'), t = document.getElementById('q-to');
+    if(f) f.value = dateFrom; if(t) t.value = dateTo;
+    updateSearch(); return;
+  }
   if(e.target.closest('#q-clear')){ e.preventDefault(); searchQuery = ''; const q = document.getElementById('q'); q.value = ''; updateSearch(); q.focus(); }
 });
 
@@ -1205,6 +1297,10 @@ function openDebt(opts){
     amountField('d-amount', debt ? (debt.amount/100).toFixed(2) : '') +
     '<p class="help" id="d-hint"></p>' +
     '<p class="err" id="d-err" role="alert"></p>' +
+    (loan ? '<label class="check"><input type="checkbox" id="d-old"'+(debt && debt.old ? ' checked' : '')+'>' +
+      '<span><strong>'+(type === 'lent' ? 'I lent this before I started using Ledger' : 'I borrowed this before I started using Ledger')+'</strong>' +
+      '<small>'+(type === 'lent' ? 'It won\u2019t come out of your balance. When they pay you back, that still adds to it.'
+                                : 'It won\u2019t add to your balance. When you pay it back, that still comes out of it.')+'</small></span></label>' : '') +
     '<label class="field"><span>Date</span><input class="input" type="date" id="d-date" value="'+(debt ? debt.date : todayStr())+'"></label>' +
     '<label class="field"><span>Note</span><input class="input" id="d-note" maxlength="300" autocomplete="off" placeholder="'+ui.note+'" value="'+(debt ? esc(debt.note || '') : '')+'"></label>' +
     '<div class="actions">' +
@@ -1279,8 +1375,11 @@ function openDebt(opts){
     const note = $('#d-note').value.trim();
     if(debt){
       debt.amount = amount; debt.date = date; debt.note = note;
+      if(loan){ if($('#d-old').checked) debt.old = true; else delete debt.old; }
     } else {
-      state.debts.push({id:'d_'+uid(), personId:pid, type:type, amount:amount, date:date, note:note, createdAt:Date.now()});
+      const rec = {id:'d_'+uid(), personId:pid, type:type, amount:amount, date:date, note:note, createdAt:Date.now()};
+      if(loan && $('#d-old').checked) rec.old = true;
+      state.debts.push(rec);
     }
     if(!save()) return;
     closeSheet(); render();

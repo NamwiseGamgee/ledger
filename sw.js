@@ -1,6 +1,6 @@
 // Lets the app open even without internet. Always tries the network first,
 // so when you upload a new version to GitHub you get it on the next open.
-const CACHE = 'ledger-v11';
+const CACHE = 'ledger-v12';
 const ASSETS = ['./', './index.html', './manifest.webmanifest', './apple-touch-icon.png', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
