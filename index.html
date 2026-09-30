@@ -585,6 +585,23 @@ function allocate(ds){
       for(const l of loans){ if(left <= 0) break; apply(l); }
     });
   });
+  // Money you lent them and money you borrowed from them cancel each other out, oldest loans first.
+  // What's left open on either side is only the true net amount between you.
+  const openOf = type => ds.filter(d => d.type === type).sort(byOldest).filter(l => out[l.id].rem > 0);
+  const lentOpen = openOf('lent'), borOpen = openOf('borrowed');
+  let offset = Math.min(lentOpen.reduce((t,l) => t + out[l.id].rem, 0), borOpen.reduce((t,l) => t + out[l.id].rem, 0));
+  if(offset > 0){
+    const when = ds.reduce((m,d) => d.date > m ? d.date : m, '');
+    [lentOpen, borOpen].forEach(list => {
+      let left = offset;
+      for(const l of list){
+        if(left <= 0) break;
+        const r = out[l.id], take = Math.min(r.rem, left);
+        r.rem -= take; left -= take; r.offset = take;
+        if(r.rem === 0) r.paidOn = when;
+      }
+    });
+  }
   return out;
 }
 function personStats(pid){
@@ -593,10 +610,12 @@ function personStats(pid){
   let last = '';
   for(const d of ds){ t[d.type] += d.amount; if(d.date > last) last = d.date; }
   const alloc = allocate(ds);
-  const theyOwe = t.lent - t.paid, iOwe = t.borrowed - t.repaid;
+  const net = (t.lent - t.paid) - (t.borrowed - t.repaid);
+  const theyOwe = Math.max(0, net), iOwe = Math.max(0, -net);
+  const offset = ds.filter(d => d.type === 'lent').reduce((sum,d) => sum + (alloc[d.id].offset || 0), 0);
   const open = type => ds.filter(d => d.type === type && alloc[d.id].rem > 0);
   return {ds:ds, alloc:alloc, lent:t.lent, paid:t.paid, borrowed:t.borrowed, repaid:t.repaid,
-    theyOwe:theyOwe, iOwe:iOwe, net:theyOwe - iOwe, last:last,
+    theyOwe:theyOwe, iOwe:iOwe, net:net, offset:offset, last:last,
     openLent: open('lent'), openBorrowed: open('borrowed'),
     paidLoans: ds.filter(d => isLoan(d.type) && alloc[d.id].rem === 0)};
 }
@@ -1019,17 +1038,20 @@ function historyRow(d, r){
     // Crossed off with "Mark paid": show the amount that was still pending and got crossed off.
     // Paid off by payments alone: those payments are listed separately, so no amount is repeated here.
     const crossed = state.debts.filter(x => x.loanId === d.id).reduce((t,x) => t + x.amount, 0);
-    const earlier = d.amount - crossed;
-    const title = crossed ? 'Crossed off on ' : (lent ? 'Paid off on ' : 'You paid it off on ');
+    const off = r.offset || 0;
+    const shown = crossed + off;                  // the part cleared by "Mark paid" or by cancelling out
+    const earlier = d.amount - shown;             // the part cleared by payments listed separately
+    const title = off && !crossed ? 'Cancelled out on ' : crossed ? 'Crossed off on ' : (lent ? 'Paid off on ' : 'You paid it off on ');
     const note = (lent ? 'Loan of ' : 'Borrowed ')+money(d.amount)+' on '+dayLabel(d.date) +
-      (crossed && earlier > 0 ? ', '+money(earlier)+' paid before' : '') +
-      (!crossed ? ', covered by the payments listed here' : '') +
+      (shown && earlier > 0 ? ', '+money(earlier)+(lent ? ' paid back before' : ' repaid before') : '') +
+      (off ? (lent ? ', offset by what you borrowed' : ', offset by what they borrowed') : '') +
+      (!shown ? ', covered by the payments listed here' : '') +
       (d.old ? ', before Ledger' : '') + (d.note ? ', '+esc(d.note) : '');
     return '<button class="entry" data-action="edit-debt" data-id="'+d.id+'">' +
       '<span class="badge done">'+ICON_CHECK+'</span>' +
       '<span class="entry-main"><span class="entry-title">'+title+dayLabel(r.paidOn)+'</span>' +
         '<span class="entry-note">'+note+'</span></span>' +
-      '<span class="entry-side">'+(crossed ? '<span class="entry-amt num struck">'+money(crossed)+'</span>' : '')+'</span>' +
+      '<span class="entry-side">'+(shown ? '<span class="entry-amt num struck">'+money(shown)+'</span>' : '')+'</span>' +
     '</button>';
   }
   const inn = d.type === 'paid';
@@ -1056,7 +1078,7 @@ function renderPerson(pid){
     '<h1>'+name+'</h1>' +
     '<p class="big num '+(n > 0 ? 'owed-text' : n < 0 ? 'out-text' : 'in-text')+'">'+money(Math.abs(n))+'</p>' +
     '<p class="caption">'+(n > 0 ? 'owes you' : n < 0 ? 'you owe '+name : 'you’re all square')+'</p>' +
-    (st.theyOwe > 0 && st.iOwe > 0 ? '<p class="caption">'+name+' owes you '+money(st.theyOwe)+' and you owe them '+money(st.iOwe)+'.</p>' : '') +
+    (st.offset > 0 ? '<p class="caption">'+money(st.offset)+' you lent and '+money(st.offset)+' you borrowed cancel each other out.</p>' : '') +
     '<div class="io" style="margin-top:18px">' +
       (st.lent || !st.borrowed ? '<div><span>You lent</span><strong class="num out-text">'+money(st.lent)+'</strong></div>' +
         '<div><span>Paid you back</span><strong class="num in-text">'+money(st.paid)+'</strong></div>' : '') +
@@ -1067,18 +1089,18 @@ function renderPerson(pid){
 
   if(st.lent || !st.borrowed){
     html += '<h2>'+name+' still owes you</h2>' +
-      (openLent.length ? '<p class="section-note">Payments go toward the oldest loan first.</p>' : '') +
+      (openLent.length ? '<p class="section-note">Payments go toward the oldest loan first. Money you borrow from '+name+' cancels out what they owe you.</p>' : '') +
       '<div class="list">' + (openLent.length ? openLent.map(l => loanRow(l, A[l.id])).join('')
         : '<p class="empty">No open loans. Tap <strong>Lent more</strong> when '+name+' borrows money.</p>') + '</div>';
   }
   if(st.borrowed){
     html += '<h2>You still owe '+name+'</h2>' +
-      (openBor.length ? '<p class="section-note">Your repayments go toward the oldest loan first.</p>' : '') +
+      (openBor.length ? '<p class="section-note">Your repayments go toward the oldest loan first. Money '+name+' borrows from you cancels out what you owe.</p>' : '') +
       '<div class="list">' + (openBor.length ? openBor.map(l => loanRow(l, A[l.id])).join('')
         : '<p class="empty">You don’t owe '+name+' anything.</p>') + '</div>';
   }
 
-  html += '<h2>History</h2><p class="section-note">Every payment, plus loans you crossed off with the amount that was still left on them.</p><div class="list">' +
+  html += '<h2>History</h2><p class="section-note">Every payment, plus loans that were crossed off or cancelled out, showing the amount that was still left on them.</p><div class="list">' +
     (history.length ? history.map(d => historyRow(d, A[d.id])).join('') : '<p class="empty">Nothing paid back yet.</p>') + '</div>';
 
   html += '<div class="row-btns" style="margin-top:24px">' +
@@ -1272,8 +1294,8 @@ function openDebt(opts){
   const choices = (loan ? state.people.slice() : state.people.filter(p => openFor(personStats(p.id), type) > 0 || (debt && p.id === personId)))
     .sort((a,b) => a.name.localeCompare(b.name));
   if(!loan && !debt){
-    if(!choices.length){ toast(type === 'paid' ? 'Nobody owes you anything right now' : 'You don’t owe anyone right now'); return; }
     if(personId && !choices.some(p => p.id === personId)){ toast(nothing(personId)); return; }
+    if(!choices.length){ toast(type === 'paid' ? 'Nobody owes you anything right now' : 'You don’t owe anyone right now'); return; }
     if(!personId && choices.length === 1) personId = choices[0].id;
   }
 
@@ -1282,7 +1304,7 @@ function openDebt(opts){
   const markPays = debt && loan ? state.debts.filter(d => d.loanId === debt.id) : [];
   const markedOff = !!(info && info.rem === 0 && markPays.length);
   const status = !info ? ''
-    : info.rem === 0 ? (type === 'lent' ? 'Paid off on ' : 'You paid it off on ')+dayLabel(info.paidOn)+'.'
+    : info.rem === 0 ? (info.offset && !markPays.length ? 'Cancelled out on ' : type === 'lent' ? 'Paid off on ' : 'You paid it off on ')+dayLabel(info.paidOn)+'.'
     : info.rem < debt.amount ? money(debt.amount - info.rem)+' paid so far, '+money(info.rem)+' left.'
     : 'Nothing paid back yet.';
 
